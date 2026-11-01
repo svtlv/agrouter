@@ -305,6 +305,15 @@ efforts     = low, medium, high, xhigh, max, ultra
 description = Workhorse for complex coding and agent workflows; better factual reliability than 5.6 Sol. The capable everyday choice. Input USD 2 / output USD 10 per million tokens.
 source      = https://developers.openai.com/api/docs/models/gpt-6.1-sol
 
+[model.gpt-6.1-terra]
+enabled     = true
+cli         = codex
+name        = gpt-6.1-terra
+# aliases     =
+efforts     = low, medium, high, xhigh, max, ultra
+description = Fast and efficient for visual reasoning, precise computer use and clear writing: interpreting charts and technical drawings, working across application screens, drafting and revising text. Input USD 1 / output USD 5 per million tokens.
+source      = https://developers.openai.com/api/docs/models/gpt-6.1-terra
+
 [model.gpt-6-luna]
 enabled     = true
 cli         = codex
