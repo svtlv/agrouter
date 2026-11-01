@@ -19,8 +19,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SvetlovA/agrouter/pkg/config"
-	"github.com/SvetlovA/agrouter/pkg/prompt"
+	"github.com/svtlv/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/prompt"
 )
 
 // the test binary doubles as the child: with GO_WANT_HELPER_PROCESS=1 it runs helper instead of the

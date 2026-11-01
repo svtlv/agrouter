@@ -14,8 +14,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/SvetlovA/agrouter/pkg/config"
-	"github.com/SvetlovA/agrouter/pkg/runner"
+	"github.com/svtlv/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/runner"
 )
 
 // Control-stream request subtypes. These reads are the only requests the sdk-control-usage-v1

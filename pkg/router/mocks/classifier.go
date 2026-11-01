@@ -5,7 +5,7 @@ package mocks
 
 import (
 	"context"
-	"github.com/SvetlovA/agrouter/pkg/classifier"
+	"github.com/svtlv/agrouter/pkg/classifier"
 	"sync"
 )
 

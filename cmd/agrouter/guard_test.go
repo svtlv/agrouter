@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SvetlovA/agrouter/pkg/config"
-	"github.com/SvetlovA/agrouter/pkg/config/defaults"
+	"github.com/svtlv/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/config/defaults"
 )
 
 // TestGuard_NoCatalogNamesInProduction keeps catalog names in config. CLI names are checked in

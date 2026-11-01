@@ -87,7 +87,7 @@ linters:
     wrapcheck:
       # errors from this module's packages already carry their context
       ignore-package-globs:
-        - github.com/SvetlovA/agrouter/pkg/*
+        - github.com/svtlv/agrouter/pkg/*
     revive:
       rules:
         - name: early-return

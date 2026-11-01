@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/SvetlovA/agrouter/pkg/args"
-	"github.com/SvetlovA/agrouter/pkg/catalog"
-	"github.com/SvetlovA/agrouter/pkg/classifier"
-	"github.com/SvetlovA/agrouter/pkg/config"
-	"github.com/SvetlovA/agrouter/pkg/prompt"
+	"github.com/svtlv/agrouter/pkg/args"
+	"github.com/svtlv/agrouter/pkg/catalog"
+	"github.com/svtlv/agrouter/pkg/classifier"
+	"github.com/svtlv/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/prompt"
 )
 
 //go:generate go tool moq -out mocks/classifier.go -pkg mocks -skip-ensure . Classifier

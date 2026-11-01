@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SvetlovA/agrouter/pkg/config"
-	"github.com/SvetlovA/agrouter/pkg/runner"
+	"github.com/svtlv/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/runner"
 )
 
 // JSON-RPC methods. These reads and the initialized notification are the only messages the

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/SvetlovA/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/config"
 )
 
 // Choice is what the argv is built for: the model and effort to emit through the CLI's descriptors.

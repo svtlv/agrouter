@@ -5,8 +5,8 @@ package mocks
 
 import (
 	"context"
-	"github.com/SvetlovA/agrouter/pkg/config"
-	"github.com/SvetlovA/agrouter/pkg/readiness"
+	"github.com/svtlv/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/readiness"
 	"sync"
 )
 

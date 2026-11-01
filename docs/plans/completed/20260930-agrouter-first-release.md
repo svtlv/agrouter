@@ -4,10 +4,10 @@
 - Implement agrouter v1 as specified in `docs/design.md` (commit `fa38f4b`, plus the two corrections committed with this plan): a Go CLI that asks TypeSafe's Jev which `(cli, model, effort)` should run a prompt. It then prints that decision (decision mode) or runs the chosen CLI with agrouter's arguments translated through config (exec mode).
 - Solves: ralphex (and any caller) running one fixed model for every prompt. agrouter picks a cheaper model for trivial work and a stronger one for hard work, per call, without the caller knowing each CLI's flags.
 - Integrates as a drop-in `claude_command` (ralphex Claude mode, `--cli=claude`) and `codex_command` (ralphex Codex mode and the external Codex review), and as a standalone router for scripts (decision mode JSON).
-- Ships with GitHub Actions CI (tests on Linux, Windows and macOS, and lint) and a tag-driven release for `go install github.com/SvetlovA/agrouter/cmd/agrouter@<tag>`. No binary artifacts in this release.
+- Ships with GitHub Actions CI (tests on Linux, Windows and macOS, and lint) and a tag-driven release for `go install github.com/svtlv/agrouter/cmd/agrouter@<tag>`. No binary artifacts in this release.
 
 ## Context (from discovery)
-- Repository today: `docs/design.md` (the full design), a stub `README.md`, `LICENSE`. No Go code yet. Module path: `github.com/SvetlovA/agrouter`.
+- Repository today: `docs/design.md` (the full design), a stub `README.md`, `LICENSE`. No Go code yet. Module path: `github.com/svtlv/agrouter`.
 - Design decisions settled in the design discussions (do not reopen during implementation):
   - Argument vocabulary follows Claude Code. Every mapped argument goes through the chosen CLI's `[cli.*.args]` templates (JSON string arrays, no shell).
   - `print` is a required mapping, always emitted first. `{prompt}` (positional prompt only) sits in `print` or the optional `prompt` key, and is dropped to zero tokens when there is none. Stdin passes to the child untouched. Only Jev's `prompt` joins positional and stdin with `\n\n`.
@@ -122,7 +122,7 @@
 - Create: `.gitignore`, `.gitattributes`
 - Modify: `docs/design.md`
 
-- [x] create `go.mod` (`module github.com/SvetlovA/agrouter`, `go 1.26`, and make sure local Go 1.27 adds no `toolchain` line) with go-flags, ini.v1, testify and `golang.org/x/sys`; add moq with `go get -tool github.com/matryer/moq@<pinned>`; `go mod vendor`
+- [x] create `go.mod` (`module github.com/svtlv/agrouter`, `go 1.26`, and make sure local Go 1.27 adds no `toolchain` line) with go-flags, ini.v1, testify and `golang.org/x/sys`; add moq with `go get -tool github.com/matryer/moq@<pinned>`; `go mod vendor`
 - [x] create `.gitattributes` (`* text=auto eol=lf`, `-text` for binary fixtures such as `*.png`, `*.pdf`, `*.bin`) before any fixture is committed
 - [x] create `cmd/agrouter/main.go` with a testable `run(args []string, stdin io.Reader, stdout, stderr io.Writer) int` (`main` only calls `os.Exit(run(...))`), and `--version` printing `debug.ReadBuildInfo().Main.Version` (falling back to `unknown`)
 - [x] create `Makefile` following ralphex: `build` (to `.bin/`), `test` (coverage excluding mocks; `RACE ?=` empty locally, CI passes `RACE=-race`), `lint`, `fmt`, `generate` (`go generate ./...` running `go tool moq`), and a placeholder `eval-routing`
@@ -533,7 +533,7 @@ Effort …` string; goldens `request_full_*.json`. The default question ends wit
 - [x] trigger on tags `v*`; `permissions: contents: write`; checkout with `fetch-depth: 0` and `git fetch origin master`
 - [x] validate the tag: `^v[01]\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9a-z-]+(\.[0-9a-z-]+)*)?$` (no `/v2` module path, so v2+ is rejected; lowercase pre-releases avoid proxy case-escaping); require the tagged commit to be an ancestor of `origin/master`
 - [x] re-run `go test ./...` on the tagged commit, then `gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes` (plus `--prerelease` for a suffix) with `env: GH_TOKEN: ${{ github.token }}`
-- [x] warm the module proxy with a retry loop around `GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod go list -m "github.com/SvetlovA/agrouter@$GITHUB_REF_NAME"` (needs the repository to be public; note it in the workflow)
+- [x] warm the module proxy with a retry loop around `GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod go list -m "github.com/svtlv/agrouter@$GITHUB_REF_NAME"` (needs the repository to be public; note it in the workflow)
 - [x] validate the workflow with `actionlint`; add a "Releasing" section to `README.md` (tag on master, push the tag, the install command)
 - [x] run `make test` - must pass before next task
 - ➕ `--prerelease` is added when the tag contains `-`; the proxy warm-up retries 5 times with a growing delay (10s…50s); README gained an "Install" section next to "Releasing"
@@ -580,7 +580,7 @@ Effort …` string; goldens `request_full_*.json`. The default question ends wit
 - run `make eval-routing` with a real `TYPESAFE_API_KEY`, then pick the question encoding and tune descriptions before tagging
 
 **Release:**
-- make sure the repository is public (the module proxy and `go install` need it), push the first tag on `master` (e.g. `v1.0.0`), and confirm the GitHub Release and `go install github.com/SvetlovA/agrouter/cmd/agrouter@v1.0.0`
+- make sure the repository is public (the module proxy and `go install` need it), push the first tag on `master` (e.g. `v1.0.0`), and confirm the GitHub Release and `go install github.com/svtlv/agrouter/cmd/agrouter@v1.0.0`
 - enable the repository on Coveralls if coverage reporting is wanted
 
 **External system updates:**

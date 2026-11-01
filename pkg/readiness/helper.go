@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/SvetlovA/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/config"
 )
 
 // HelperSchema is the version of the evidence JSON a json-helper prints on stdout.

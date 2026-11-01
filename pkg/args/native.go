@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/SvetlovA/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/config"
 )
 
 // nativeOptions removes agrouter's own selection spellings from the child's options. Other tokens

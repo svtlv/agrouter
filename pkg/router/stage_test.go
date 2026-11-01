@@ -14,12 +14,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SvetlovA/agrouter/pkg/args"
-	"github.com/SvetlovA/agrouter/pkg/catalog"
-	"github.com/SvetlovA/agrouter/pkg/classifier"
-	"github.com/SvetlovA/agrouter/pkg/config"
-	"github.com/SvetlovA/agrouter/pkg/prompt"
-	"github.com/SvetlovA/agrouter/pkg/router/mocks"
+	"github.com/svtlv/agrouter/pkg/args"
+	"github.com/svtlv/agrouter/pkg/catalog"
+	"github.com/svtlv/agrouter/pkg/classifier"
+	"github.com/svtlv/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/prompt"
+	"github.com/svtlv/agrouter/pkg/router/mocks"
 )
 
 // stageAsked is the routing stage question of req and its id; ok is false for a doc request.

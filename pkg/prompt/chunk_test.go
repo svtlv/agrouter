@@ -188,7 +188,6 @@ func TestNewBudgetExtremeRatios(t *testing.T) {
 	})
 }
 
-
 func TestChunkRoom(t *testing.T) {
 	maxIndex := strconv.Itoa(math.MaxInt)
 	assert.Len(t, maxIndex, indexDigits)

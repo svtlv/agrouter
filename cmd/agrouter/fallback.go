@@ -5,10 +5,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/SvetlovA/agrouter/pkg/args"
-	"github.com/SvetlovA/agrouter/pkg/config"
-	"github.com/SvetlovA/agrouter/pkg/readiness"
-	"github.com/SvetlovA/agrouter/pkg/router"
+	"github.com/svtlv/agrouter/pkg/args"
+	"github.com/svtlv/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/readiness"
+	"github.com/svtlv/agrouter/pkg/router"
 )
 
 // Sources of an effective exec value.

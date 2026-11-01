@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SvetlovA/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/config"
 )
 
 // probeCommand returns a ProbeCommand running the helper in mode, recording into a temp dir.

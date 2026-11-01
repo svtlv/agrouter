@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SvetlovA/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/config"
 )
 
 // ExitStartFailure is the exit code when the command is missing or cannot be started.

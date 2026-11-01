@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/SvetlovA/agrouter/pkg/classifier"
-	"github.com/SvetlovA/agrouter/pkg/router"
+	"github.com/svtlv/agrouter/pkg/classifier"
+	"github.com/svtlv/agrouter/pkg/router"
 )
 
 // Routing failure codes in the reason JSON, from the typed errors only: never from messages or

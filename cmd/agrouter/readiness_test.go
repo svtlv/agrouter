@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SvetlovA/agrouter/cmd/agrouter/mocks"
-	"github.com/SvetlovA/agrouter/pkg/config"
-	"github.com/SvetlovA/agrouter/pkg/readiness"
-	"github.com/SvetlovA/agrouter/pkg/runner"
+	"github.com/svtlv/agrouter/cmd/agrouter/mocks"
+	"github.com/svtlv/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/readiness"
+	"github.com/svtlv/agrouter/pkg/runner"
 )
 
 // testNow is the app clock in tests; resets are relative to it.

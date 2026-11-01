@@ -8,8 +8,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/SvetlovA/agrouter/pkg/config"
-	"github.com/SvetlovA/agrouter/pkg/runner"
+	"github.com/svtlv/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/runner"
 )
 
 // Status is one dimension's verdict.

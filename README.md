@@ -12,7 +12,7 @@ It has two modes:
 Requires Go 1.27 or later. Exec mode also needs the chosen CLI (`claude`, `codex`) on `PATH`; otherwise agrouter exits `127` before routing.
 
 ```sh
-go install github.com/SvetlovA/agrouter/cmd/agrouter@latest
+go install github.com/svtlv/agrouter/cmd/agrouter@latest
 agrouter --version
 ```
 
@@ -630,5 +630,5 @@ Leave `task_model`, `review_model`, `plan_model`, `codex_model` and `codex_reaso
 4. Install the release:
 
    ```sh
-   go install github.com/SvetlovA/agrouter/cmd/agrouter@v0.1.0
+   go install github.com/svtlv/agrouter/cmd/agrouter@v0.1.0
    ```

@@ -9,7 +9,7 @@ import (
 
 	"github.com/jessevdk/go-flags"
 
-	"github.com/SvetlovA/agrouter/pkg/args"
+	"github.com/svtlv/agrouter/pkg/args"
 )
 
 // execToken selects exec mode, but only as the first token; the CLI to run follows it.

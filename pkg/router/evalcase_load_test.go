@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SvetlovA/agrouter/pkg/catalog"
-	"github.com/SvetlovA/agrouter/pkg/classifier"
-	"github.com/SvetlovA/agrouter/pkg/prompt"
-	"github.com/SvetlovA/agrouter/pkg/router/mocks"
+	"github.com/svtlv/agrouter/pkg/catalog"
+	"github.com/svtlv/agrouter/pkg/classifier"
+	"github.com/svtlv/agrouter/pkg/prompt"
+	"github.com/svtlv/agrouter/pkg/router/mocks"
 )
 
 // evalMock answers each stage question with pick's part (probability 1, confidence 0.8; see

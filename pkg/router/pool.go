@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/SvetlovA/agrouter/pkg/classifier"
-	"github.com/SvetlovA/agrouter/pkg/prompt"
+	"github.com/svtlv/agrouter/pkg/classifier"
+	"github.com/svtlv/agrouter/pkg/prompt"
 )
 
 // topOptions is how many criteria debug output lists per chunk and for the pool.

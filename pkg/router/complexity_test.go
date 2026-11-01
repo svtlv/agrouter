@@ -16,9 +16,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SvetlovA/agrouter/pkg/classifier"
-	"github.com/SvetlovA/agrouter/pkg/prompt"
-	"github.com/SvetlovA/agrouter/pkg/router/mocks"
+	"github.com/svtlv/agrouter/pkg/classifier"
+	"github.com/svtlv/agrouter/pkg/prompt"
+	"github.com/svtlv/agrouter/pkg/router/mocks"
 )
 
 // levels is a complexity answer with the given probabilities and 0 on every other level.

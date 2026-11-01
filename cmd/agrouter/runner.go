@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/SvetlovA/agrouter/pkg/runner"
+	"github.com/svtlv/agrouter/pkg/runner"
 )
 
 //go:generate go tool moq -out mocks/command_runner.go -pkg mocks -skip-ensure . CommandRunner

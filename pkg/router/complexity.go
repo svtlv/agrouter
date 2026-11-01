@@ -6,8 +6,8 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/SvetlovA/agrouter/pkg/classifier"
-	"github.com/SvetlovA/agrouter/pkg/prompt"
+	"github.com/svtlv/agrouter/pkg/classifier"
+	"github.com/svtlv/agrouter/pkg/prompt"
 )
 
 // DocScore is one doc request's answers, for recording and debug output.

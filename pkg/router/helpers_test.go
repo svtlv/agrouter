@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SvetlovA/agrouter/pkg/classifier"
+	"github.com/svtlv/agrouter/pkg/classifier"
 )
 
 // answersOnly adapts a test closure that returns only answers to the Classifier's Ask signature, with

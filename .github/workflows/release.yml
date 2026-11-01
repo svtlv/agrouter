@@ -54,7 +54,7 @@ jobs:
           fi
           gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes "${flags[@]}"
 
-      # makes `go install github.com/SvetlovA/agrouter/cmd/agrouter@<tag>` resolvable right away;
+      # makes `go install github.com/svtlv/agrouter/cmd/agrouter@<tag>` resolvable right away;
       # the proxy can only fetch the module when the repository is public
       - name: warm module proxy
         env:
@@ -62,7 +62,7 @@ jobs:
           GOFLAGS: -mod=mod
         run: |
           for attempt in 1 2 3 4 5; do
-            if go list -m "github.com/SvetlovA/agrouter@$GITHUB_REF_NAME"; then
+            if go list -m "github.com/svtlv/agrouter@$GITHUB_REF_NAME"; then
               exit 0
             fi
             echo "module proxy not ready (attempt $attempt), retrying" >&2

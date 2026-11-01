@@ -1,4 +1,4 @@
-module github.com/SvetlovA/agrouter
+module github.com/svtlv/agrouter
 
 go 1.27.0
 

@@ -1,6 +1,6 @@
 package main
 
-import "github.com/SvetlovA/agrouter/pkg/router"
+import "github.com/svtlv/agrouter/pkg/router"
 
 // confidenceJSON records the classifier's confidence and arithmetic means for reporting only. Each routing
 // stage's confidence is conditional on the stages before it, not the confidence of the whole choice.

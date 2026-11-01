@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SvetlovA/agrouter/pkg/catalog"
-	"github.com/SvetlovA/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/catalog"
+	"github.com/svtlv/agrouter/pkg/config"
 )
 
 // Evaluation reason codes, beside the evidence's own.

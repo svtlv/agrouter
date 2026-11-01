@@ -5,7 +5,7 @@ package mocks
 
 import (
 	"context"
-	"github.com/SvetlovA/agrouter/pkg/runner"
+	"github.com/svtlv/agrouter/pkg/runner"
 	"sync"
 )
 

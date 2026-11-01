@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SvetlovA/agrouter/pkg/config"
-	"github.com/SvetlovA/agrouter/pkg/readiness"
-	"github.com/SvetlovA/agrouter/pkg/router"
-	"github.com/SvetlovA/agrouter/pkg/runner"
+	"github.com/svtlv/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/readiness"
+	"github.com/svtlv/agrouter/pkg/router"
+	"github.com/svtlv/agrouter/pkg/runner"
 )
 
 //go:generate go tool moq -out mocks/readiness_checker.go -pkg mocks -skip-ensure . ReadinessChecker

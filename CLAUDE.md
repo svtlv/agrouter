@@ -1,6 +1,6 @@
 # agrouter
 
-Go CLI that asks a routing classifier (TypeSafe's Jev by default) which `(cli, model, effort)` should run a prompt, then prints the decision or runs the chosen CLI. Module `github.com/SvetlovA/agrouter`, Go 1.27, dependencies vendored.
+Go CLI that asks a routing classifier (TypeSafe's Jev by default) which `(cli, model, effort)` should run a prompt, then prints the decision or runs the chosen CLI. Module `github.com/svtlv/agrouter`, Go 1.27, dependencies vendored.
 
 ## Layout
 

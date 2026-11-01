@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/SvetlovA/agrouter/pkg/args"
-	"github.com/SvetlovA/agrouter/pkg/catalog"
+	"github.com/svtlv/agrouter/pkg/args"
+	"github.com/svtlv/agrouter/pkg/catalog"
 )
 
 // Drop is a CLI eligibility removed, and why, for debug output.

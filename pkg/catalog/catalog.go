@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/SvetlovA/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/config"
 )
 
 // MaxOptions is the classifier's limit on the options of one Choice question.

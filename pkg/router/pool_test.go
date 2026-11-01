@@ -19,10 +19,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SvetlovA/agrouter/pkg/args"
-	"github.com/SvetlovA/agrouter/pkg/classifier"
-	"github.com/SvetlovA/agrouter/pkg/prompt"
-	"github.com/SvetlovA/agrouter/pkg/router/mocks"
+	"github.com/svtlv/agrouter/pkg/args"
+	"github.com/svtlv/agrouter/pkg/classifier"
+	"github.com/svtlv/agrouter/pkg/prompt"
+	"github.com/svtlv/agrouter/pkg/router/mocks"
 )
 
 const (

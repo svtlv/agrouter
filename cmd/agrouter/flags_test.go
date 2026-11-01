@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/SvetlovA/agrouter/pkg/args"
+	"github.com/svtlv/agrouter/pkg/args"
 )
 
 func parseOK(t *testing.T, argv []string) *args.Request {

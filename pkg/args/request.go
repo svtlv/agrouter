@@ -2,7 +2,7 @@
 // the [cli.*] invocation descriptors. Parsing the command line stays in cmd/agrouter.
 package args
 
-import "github.com/SvetlovA/agrouter/pkg/prompt"
+import "github.com/svtlv/agrouter/pkg/prompt"
 
 // Mode selects what agrouter does with its decision.
 type Mode int

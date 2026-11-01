@@ -12,15 +12,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SvetlovA/agrouter/pkg/args"
-	"github.com/SvetlovA/agrouter/pkg/catalog"
-	"github.com/SvetlovA/agrouter/pkg/classifier"
-	"github.com/SvetlovA/agrouter/pkg/config"
-	"github.com/SvetlovA/agrouter/pkg/config/defaults"
-	"github.com/SvetlovA/agrouter/pkg/prompt"
-	"github.com/SvetlovA/agrouter/pkg/readiness"
-	"github.com/SvetlovA/agrouter/pkg/router"
-	"github.com/SvetlovA/agrouter/pkg/runner"
+	"github.com/svtlv/agrouter/pkg/args"
+	"github.com/svtlv/agrouter/pkg/catalog"
+	"github.com/svtlv/agrouter/pkg/classifier"
+	"github.com/svtlv/agrouter/pkg/config"
+	"github.com/svtlv/agrouter/pkg/config/defaults"
+	"github.com/svtlv/agrouter/pkg/prompt"
+	"github.com/svtlv/agrouter/pkg/readiness"
+	"github.com/svtlv/agrouter/pkg/router"
+	"github.com/svtlv/agrouter/pkg/runner"
 )
 
 // Exit codes of agrouter's own outcomes; a child's code is passed through as is.

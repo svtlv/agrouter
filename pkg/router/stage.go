@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/SvetlovA/agrouter/pkg/catalog"
-	"github.com/SvetlovA/agrouter/pkg/classifier"
-	"github.com/SvetlovA/agrouter/pkg/prompt"
+	"github.com/svtlv/agrouter/pkg/catalog"
+	"github.com/svtlv/agrouter/pkg/classifier"
+	"github.com/svtlv/agrouter/pkg/prompt"
 )
 
 // Routing levels, in the order they are asked. Each name is its stage request's question id and its

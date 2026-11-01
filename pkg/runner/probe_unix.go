@@ -14,7 +14,7 @@ import (
 // probeGroup is the probe's own process group. Unlike the real child, which stays in agrouter's group,
 // a probe and its descendants are killed together without touching agrouter.
 type probeGroup struct {
-	cmd       *exec.Cmd
+	cmd      *exec.Cmd
 	canceled bool // set by a signal before the group was spawned; guarded by liveProbes.mu
 }
 
