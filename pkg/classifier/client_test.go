@@ -51,11 +51,19 @@ func testRequest() Request {
 const okBody = `{"model":"test-classifier-1","answers":{"route":{"type":"choice","choice":"a",` +
 	`"probabilities":{"a":0.7,"b@high":0.3},"confidence":0.6}},"usage":{"input_tokens":10,"output_tokens":1}}`
 
+// mustNew is a TypeSafe client for url, authorized with testKey.
+func mustNew(t *testing.T, url string) *Client {
+	t.Helper()
+	c, err := New(ProviderTypeSafe, url, testKey)
+	require.NoError(t, err)
+	return c
+}
+
 func newTestClient(t *testing.T, h http.HandlerFunc) *Client {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	c := New(srv.URL, testKey)
+	c := mustNew(t, srv.URL)
 	c.MinBackoff = time.Millisecond
 	c.MaxBackoff = 5 * time.Millisecond
 	return c
@@ -186,11 +194,53 @@ func TestLimits(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			perQuestion, perRequest := Limits(tt.longContext)
+			perQuestion, perRequest := Limits(ProviderTypeSafe, tt.longContext)
 			assert.Equal(t, tt.perQuestion, perQuestion)
 			assert.Equal(t, tt.perRequest, perRequest)
 		})
 	}
+}
+
+func TestLimitsUnknownProvider(t *testing.T) {
+	perQuestion, perRequest := Limits("nope", true)
+	assert.Zero(t, perQuestion)
+	assert.Zero(t, perRequest)
+}
+
+func TestProviders(t *testing.T) {
+	got := Providers()
+	assert.Contains(t, got, ProviderTypeSafe)
+	assert.IsIncreasing(t, got, "sorted, so a config error lists them in a stable order")
+	for _, p := range got {
+		_, err := New(p, "http://classifier.test", testKey)
+		require.NoError(t, err, "every listed provider has a codec")
+		perQuestion, perRequest := Limits(p, false)
+		assert.Positive(t, perQuestion, p)
+		assert.Positive(t, perRequest, p)
+	}
+}
+
+func TestSupportsLongContext(t *testing.T) {
+	assert.True(t, SupportsLongContext(ProviderTypeSafe))
+	assert.False(t, SupportsLongContext("nope"), "an unknown provider has no long-context mode")
+	for _, p := range Providers() {
+		if SupportsLongContext(p) {
+			perQuestion, _ := Limits(p, false)
+			longQuestion, _ := Limits(p, true)
+			assert.Greater(t, longQuestion, perQuestion, "%s: long context raises the limit", p)
+		}
+	}
+}
+
+func TestNewUnknownProvider(t *testing.T) {
+	c, err := New("nope", "http://classifier.test", testKey)
+	require.ErrorIs(t, err, ErrUnknownProvider)
+	assert.Nil(t, c)
+	assert.Contains(t, err.Error(), `"nope"`)
+	assert.Contains(t, err.Error(), ProviderTypeSafe, "names the valid providers")
+
+	_, err = New("", "http://classifier.test", testKey)
+	require.ErrorIs(t, err, ErrUnknownProvider, "an empty provider is not a default")
 }
 
 func TestAskLongContextHeader(t *testing.T) {
@@ -329,7 +379,7 @@ func TestAskInputTokensOnFailure(t *testing.T) {
 }
 
 func TestAskRetriesThenSucceeds(t *testing.T) {
-	for _, status := range []int{http.StatusTooManyRequests, 529} {
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable, 529} {
 		var calls atomic.Int32
 		c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 			if calls.Add(1) <= 2 {
@@ -346,7 +396,7 @@ func TestAskRetriesThenSucceeds(t *testing.T) {
 }
 
 func TestAskOverloadedExhaustedWithinDeadline(t *testing.T) {
-	for _, status := range []int{http.StatusTooManyRequests, 529} {
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable, 529} {
 		var calls atomic.Int32
 		c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 			calls.Add(1)
@@ -419,7 +469,7 @@ func TestAskRetryCutByDeadlineReportsOverload(t *testing.T) {
 }
 
 func TestAskNetworkError(t *testing.T) {
-	c := New("http://127.0.0.1:1/"+testKey, testKey)
+	c := mustNew(t, "http://127.0.0.1:1/"+testKey)
 	_, err := c.Ask(t.Context(), testRequest())
 	require.ErrorIs(t, err, ErrTransport)
 	require.NotErrorIs(t, err, ErrMalformed)
@@ -654,21 +704,21 @@ func TestAskUnsupportedQuestionType(t *testing.T) {
 }
 
 func TestAskEncodeError(t *testing.T) {
-	c := New("http://classifier.test", testKey)
+	c := mustNew(t, "http://classifier.test")
 	_, err := c.Ask(t.Context(), Request{State: math.Inf(1)})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "encode request")
 }
 
 func TestAskBadURL(t *testing.T) {
-	c := New("://bad", testKey)
+	c := mustNew(t, "://bad")
 	_, err := c.Ask(t.Context(), testRequest())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "build request")
 }
 
 func TestDelay(t *testing.T) {
-	c := New("http://classifier.test", testKey)
+	c := mustNew(t, "http://classifier.test")
 	c.MinBackoff = 100 * time.Millisecond
 	c.MaxBackoff = time.Second
 	none := http.Header{}
@@ -695,7 +745,7 @@ func TestDelay(t *testing.T) {
 }
 
 func TestWaitCanceled(t *testing.T) {
-	c := New("http://classifier.test", testKey)
+	c := mustNew(t, "http://classifier.test")
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	assert.False(t, c.wait(ctx, time.Second))
@@ -710,7 +760,7 @@ func TestNewUsesConfiguredURL(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c := New(srv.URL+"/v1/custom", testKey)
+	c := mustNew(t, srv.URL+"/v1/custom")
 	assert.Equal(t, srv.URL+"/v1/custom", c.URL)
 	_, err := c.Ask(t.Context(), testRequest())
 	require.NoError(t, err)

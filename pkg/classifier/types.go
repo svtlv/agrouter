@@ -1,12 +1,8 @@
 // Package classifier is a client for a routing classifier: one endpoint that answers typed
-// questions about a state. The wire format is TypeSafe's "System One" API.
+// questions about a state. Callers build one provider-neutral Request; a wire codec per provider
+// (typesafe.go) turns it into that provider's body and the provider's answers into a Response. The
+// retry, the deadline and the redaction are shared.
 package classifier
-
-import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-)
 
 // Question types.
 const (
@@ -15,7 +11,9 @@ const (
 	TypeNoul   = "noul"
 )
 
-// Request is the body of POST /v1/systemone.
+// Request is a set of typed questions about a state, as the router builds it for any provider. The
+// tags and the Question and Criteria encoders are TypeSafe's format (typesafe.go); other codecs
+// build their own body from the fields.
 type Request struct {
 	Model     string              `json:"model"`
 	State     any                 `json:"state"`
@@ -30,31 +28,14 @@ type Question struct {
 	Levels       []string `json:"-"`
 }
 
-// MarshalJSON encodes Score criteria as an array and Choice/Noul criteria as named objects.
-func (q Question) MarshalJSON() ([]byte, error) {
-	var criteria any = q.Criteria
-	if q.Type == TypeScore {
-		criteria = q.Levels
-	}
-	data, err := json.Marshal(struct {
-		Type         string `json:"type"`
-		Instructions any    `json:"instructions"`
-		Criteria     any    `json:"criteria"`
-	}{q.Type, q.Instructions, criteria})
-	if err != nil {
-		return nil, fmt.Errorf("question: %w", err)
-	}
-	return data, nil
-}
-
 // Criterion is one named criterion; Value is a string, an object or an array.
 type Criterion struct {
 	Name  string
 	Value any
 }
 
-// Criteria keeps its order when encoded as a JSON object, so requests are reproducible and read
-// in catalog order.
+// Criteria is an ordered list of named criteria: the order is the catalog's, so requests are
+// reproducible.
 type Criteria []Criterion
 
 // Names returns the criterion names in order.
@@ -64,30 +45,6 @@ func (c Criteria) Names() []string {
 		names[i] = cr.Name
 	}
 	return names
-}
-
-// MarshalJSON encodes the criteria as an object with keys in slice order.
-func (c Criteria) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	buf.WriteByte('{')
-	for i, cr := range c {
-		if i > 0 {
-			buf.WriteByte(',')
-		}
-		name, err := json.Marshal(cr.Name)
-		if err != nil {
-			return nil, fmt.Errorf("criterion name: %w", err)
-		}
-		value, err := json.Marshal(cr.Value)
-		if err != nil {
-			return nil, fmt.Errorf("criterion %q: %w", cr.Name, err)
-		}
-		buf.Write(name)
-		buf.WriteByte(':')
-		buf.Write(value)
-	}
-	buf.WriteByte('}')
-	return buf.Bytes(), nil
 }
 
 // Response is what Ask returns: the validated answers keyed as in the request, and the input tokens
@@ -106,21 +63,4 @@ type Answer struct {
 	Probabilities map[string]float64
 	Confidence    float64
 	Noul          float64
-}
-
-// response is the wire form of a 200 response; pointers tell a missing number from zero.
-type response struct {
-	Model   string                 `json:"model"`
-	Answers map[string]*wireAnswer `json:"answers"` // nil: a null answer
-	Usage   json.RawMessage        `json:"usage"`   // read permissively by inputTokens
-}
-
-type wireAnswer struct {
-	Type          string             `json:"type"`
-	Choice        string             `json:"choice"`
-	Score         *float64           `json:"score"`
-	Legend        map[string]string  `json:"legend"`
-	Probabilities map[string]float64 `json:"probabilities"`
-	Confidence    *float64           `json:"confidence"`
-	Noul          *float64           `json:"noul"`
 }

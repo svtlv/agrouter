@@ -49,7 +49,8 @@ the first three as its prompt argument and stdin replayed.
 the classifier; they are read on every call but never passed to the chosen CLI.
 
 The classifier API key comes from --api-key, then AGROUTER_CLASSIFIER_API_KEY, then
-api_key in the [classifier] config section. With exec, a child's own --api-key goes after "--". A key on the command line is visible to other local users in
+api_key in the selected provider's [classifier.<provider>] config section
+(classifier_provider). With exec, a child's own --api-key goes after "--". A key on the command line is visible to other local users in
 process listings; prefer the environment variable or the global config with
 user-only permissions, and never put it in a local .agrouter/config that may
 be committed.`
@@ -115,7 +116,7 @@ func parseArgs(argv []string) (command, error) {
 // flagSet is agrouter's options. The func fields set the request as go-flags parses them.
 type flagSet struct {
 	CLI     func(string) `long:"cli" value-name:"NAME" unquote:"false" description:"restrict routing to one CLI; with exec, only the CLI after exec"`
-	APIKey  func(string) `long:"api-key" value-name:"KEY" unquote:"false" description:"the routing classifier's API key; empty clears it (env AGROUTER_CLASSIFIER_API_KEY)"`
+	APIKey  func(string) `long:"api-key" value-name:"KEY" unquote:"false" description:"the routing classifier's API key, overriding the selected provider's [classifier.<provider>] api_key; empty clears it (env AGROUTER_CLASSIFIER_API_KEY)"`
 	Version bool         `long:"version" description:"print agrouter's version and exit"`
 
 	Prompt     func(string) `short:"p" long:"prompt" value-name:"TEXT" unquote:"false" description:"the prompt, before the positional prompt, --prompt-file and stdin"`

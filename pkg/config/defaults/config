@@ -5,8 +5,8 @@
 # every key is written out here. each section kind starts with a key reference: "default" is what
 # agrouter uses when no layer sets the key; "required" keys have no default and must be set.
 # environment variables are set in the process environment, not as keys in this file:
-# AGROUTER_CLASSIFIER_API_KEY: overrides [classifier] api_key; --api-key takes precedence,
-# including an explicitly empty --api-key, which clears the key.
+# AGROUTER_CLASSIFIER_API_KEY: overrides api_key of the selected [classifier.<provider>];
+# --api-key takes precedence, including an explicitly empty --api-key, which clears the key.
 # AGROUTER_CONFIG_DIR: directory containing the global config file, replacing
 # ~/.config/agrouter; .agrouter/config in the working directory still overrides it.
 # AGROUTER_DEBUG=1: enables redacted diagnostics on stderr; it is separate from
@@ -19,6 +19,8 @@
 #   routing_policy     cost/quality preference for choosing the CLI, model and effort. required
 #   complexity_policy  how the --doc stage judges the project. required
 #   log_dir            directory of the console log, relative to the working directory. default: .agrouter/logs
+#   classifier_provider  which [classifier.<provider>] section the routing requests use: typesafe or openai.
+#                        default: typesafe
 [agrouter]
 # total routing budget: reading stdin and files, the --doc complexity stage and up to three sequential
 # routing stages (cli, model, effort), each sending its chunks at once, with retries.
@@ -26,7 +28,7 @@
 timeout   = 30s
 
 # the questions sent to the classifier, and what each state field holds, are built into agrouter; these
-# two keys hold only the preference they follow. both must be non-empty. the [classifier] model is the
+# two keys hold only the preference they follow. both must be non-empty. the classifier model is the
 # model answering the questions, not one of the catalog models being chosen.
 # routing_policy: the cost/quality preference for choosing the CLI, model and effort, sent with
 # every routing question, for a prompt sent whole and for each chunk of a split one.
@@ -40,37 +42,46 @@ complexity_policy = Judge the codebase as a whole: its size, architecture, depen
 # kept out of git by .agrouter/.gitignore; any other directory is yours to manage.
 log_dir         = .agrouter/logs
 
-# [classifier]: the routing classifier agrouter asks which (cli, model, effort) runs a prompt, and
-# how big one routing request may be. any source accepting the same request body works.
+# the routing classifier agrouter asks which (cli, model, effort) runs a prompt. each provider has
+# its own section with its own request format; this selects the one agrouter uses. the other section
+# is checked for typos but not used, so it may stay as it is. use typesafe or openai.
+classifier_provider = typesafe
+
+# [classifier.<provider>]: one routing classifier and how big one routing request to it may be.
+# agrouter speaks the provider's own request and response format: a url of another source fails
+# unless it accepts that format.
 #   url              endpoint the routing requests are POSTed to. required
 #   api_key          bearer key for the endpoint. default: empty (no key)
 #   model            the classifier model answering the routing questions. required (no fallback)
-#   long_context     use the provider's long-input mode. default: false
+#   long_context     use the provider's long-input mode. default: false. only [classifier.typesafe] has it
 #   request_tokens   token allowance of one routing request: its state plus all its questions. default: 30000
 #   bytes_per_token  estimated bytes per token, used to size routing requests. default: 3
-[classifier]
+# the [classifier.<provider>] keys apply when classifier_provider selects <provider>.
+# api_key precedence: --api-key > non-empty AGROUTER_CLASSIFIER_API_KEY > local > global > embedded.
+# before using the classifier, uncomment classifier_provider and the selected [classifier.<provider>]
+# section with its api_key in the generated global config and enter your API key, or set
+# AGROUTER_CLASSIFIER_API_KEY in the environment. never put a key in a local .agrouter/config that
+# may be committed.
+#
+# routing request size, for both providers. agrouter cannot count tokens, so it estimates them from
+# bytes. request_tokens is the allowance of one routing request: the state plus all its questions.
+# input that does not fit is split into chunks. a request the routing provider still rejects as too long
+# fails routing and is never resent: lower request_tokens, or lower bytes_per_token so that the same
+# text counts as more tokens (log and code text usually needs 2.5 or less). the provider's own limits
+# are checked at startup: request_tokens must stay below them.
+
+# TypeSafe's Jev, the default provider.
+[classifier.typesafe]
 url     = https://api.typesafe.ai/v1/systemone
-# bearer key for the endpoint. Empty = no key. Prefer the env var or the global config;
-# never put it in a local .agrouter/config that may be committed.
-# before using the classifier, uncomment [classifier] and api_key in the generated global
-# config and enter your API key, or set AGROUTER_CLASSIFIER_API_KEY in the environment.
-# precedence: --api-key > non-empty AGROUTER_CLASSIFIER_API_KEY > local > global > embedded.
+# bearer key for the endpoint. Empty = no key. Prefer the env var or the global config.
 api_key =
 # pin a versioned id (e.g. jev-1.13.0) to keep routing stable across releases
 model   = jev-latest
-
-# routing request size. agrouter cannot count tokens, so it estimates them from bytes.
-# request_tokens is the allowance of one routing request: the state plus all its questions. input that
-# does not fit is split into chunks. a request the routing provider still rejects as too long fails
-# routing and is never resent: lower request_tokens, or lower bytes_per_token so that the same text
-# counts as more tokens (log and code text usually needs 2.5 or less).
-# the provider's own limits are checked at startup: request_tokens must stay below them.
 request_tokens  = 30000
 bytes_per_token = 3
-# long_context works only with Jev (TypeSafe): it sends TypeSafe's long-context header; other
-# providers ignore it. the startup check of request_tokens uses Jev's limits for every url:
-# at most 30000 with long_context = false, 260000 with long_context = true.
-# it does not raise request_tokens: raise that yourself, as in the examples below.
+# long_context sends TypeSafe's long-context header and raises the limits agrouter checks request_tokens
+# against: at most 30000 with long_context = false, 260000 with long_context = true. it does not raise
+# request_tokens: raise that yourself, as in the example below.
 long_context    = false
 # long context: Jev's experimental long-input mode (the "danger zone" header
 # TypeSafe-Danger-Zone-Long-Context: true). Jev's limits rise from 32k per question / 64k per
@@ -82,17 +93,23 @@ long_context    = false
 # bytes_per_token = 2.5
 # timeout         = 120s
 
-# example: OpenAI Luna (Decisions API), unverified: it works only if the endpoint accepts this
-# request body. put it in the global config, not a committed local one. Luna takes up to 922K
-# input tokens and bills inputs over 272K at 2x, so 250000 stays under that step with margin;
-# long_context = true only lifts agrouter's startup check. larger requests take longer: raise
-# [agrouter] timeout too (e.g. 120s).
-# [classifier]
-# url            = https://api.openai.com/v1/decisions
-# api_key        = sk-...
-# model          = gpt-6-luna
-# long_context   = true
-# request_tokens = 250000
+# OpenAI's Decisions API with Luna. it has no long_context key: its larger context is used through
+# request_tokens. Luna has a 1.05M-token context window and agrouter's conservative input limit is
+# 922K tokens (the window less its 128K output allowance). 250000 stays 22K tokens below the 272K
+# pricing threshold: an input over 272K is billed at 2x the input and cached-input rates and 1.5x the
+# output rate for the whole request. to send larger requests, raise request_tokens explicitly, up to
+# the input limit less a 2000-token reserve, and accept that billing. agrouter's size estimate is
+# bytes-based and OpenAI's encoding is somewhat larger than the estimate, so staying below 272K is
+# not guaranteed: compare AGROUTER_DEBUG=1 "tokens:" lines on large requests and lower request_tokens
+# or bytes_per_token if needed. a large request takes longer: raise [agrouter] timeout too, starting
+# with 120s.
+[classifier.openai]
+url             = https://api.openai.com/v1/decisions
+# bearer key for the endpoint. Empty = no key. Prefer the env var or the global config.
+api_key         =
+model           = gpt-6-luna
+request_tokens  = 250000
+bytes_per_token = 3
 
 # how agrouter invokes each CLI. argv = command + exec_args + native options + model_args
 # + effort_args + any native "--" and its remaining tokens + prompt_args. Only {model}, {effort}

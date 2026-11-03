@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"slices"
 	"strconv"
@@ -16,29 +15,9 @@ import (
 	"unicode/utf8"
 )
 
-// TypeSafe's input limits in tokens, per question and per request, and the header that switches
-// them to the long-context mode. They are TypeSafe's: the startup check of the configured request
-// size uses them for every endpoint, and other providers ignore the header.
-const (
-	questionLimit     = 32_000
-	requestLimit      = 64_000
-	longContextLimit  = 262_000
-	longContextHeader = "TypeSafe-Danger-Zone-Long-Context"
-	// errorTypeTooLong is the detail.error_type of a 400 for a request over the context length.
-	errorTypeTooLong = "max_tokens_exceeded"
-	// maxErrorType bounds a parsed error type; a longer one is not a code and is left empty.
-	maxErrorType = 64
-)
-
-// Limits returns the most tokens TypeSafe takes in one question and in one whole request.
-// longContext selects its long-context mode, which Client.LongContext turns on in the request.
-// The router checks the configured request size against these limits whatever the endpoint is.
-func Limits(longContext bool) (perQuestion, perRequest int) {
-	if longContext {
-		return longContextLimit, longContextLimit
-	}
-	return questionLimit, requestLimit
-}
+// errorTypeTooLong is the neutral error type of a 400 for a request over the context length. Each
+// codec's errorType normalizes its provider's code for it to this value.
+const errorTypeTooLong = "max_tokens_exceeded"
 
 // Limits on what is read back, so a misbehaving server cannot exhaust memory.
 const (
@@ -60,7 +39,7 @@ var (
 	// ErrTooLong is a 400 whose error type says the request is longer than the context length.
 	// Other 400s do not match it.
 	ErrTooLong = errors.New("request over the context length")
-	// ErrOverloaded is a 429 or 529 that retries could not get past within the deadline.
+	// ErrOverloaded is a 429, 503 or 529 that retries could not get past within the deadline.
 	ErrOverloaded = errors.New("rate limited or overloaded")
 	// ErrMalformed is a 200 whose body is not a valid set of answers to the questions sent; every
 	// ErrEmptyAnswer and ErrInvalidAnswer matches it.
@@ -92,7 +71,9 @@ func (e *transportError) Is(target error) bool { return target == ErrTransport }
 type StatusError struct {
 	Status int
 	Body   string
-	// ErrorType is detail.error_type of the raw body; empty when the body has none or is not JSON.
+	// ErrorType is the provider's error code of the raw body, normalized to the neutral values
+	// (errorTypeTooLong for a request over the context length); empty when the body has none or is
+	// not JSON.
 	ErrorType string
 }
 
@@ -112,50 +93,57 @@ func (e *StatusError) Is(target error) bool {
 		return target == ErrTooLong && e.ErrorType == errorTypeTooLong
 	case http.StatusUnauthorized:
 		return target == ErrUnauthorized
-	case http.StatusTooManyRequests, statusOverloaded:
+	case http.StatusTooManyRequests, http.StatusServiceUnavailable, statusOverloaded:
 		return target == ErrOverloaded
 	default:
 		return false
 	}
 }
 
-// statusOverloaded is TypeSafe's (and Anthropic-style) "overloaded" status.
+// statusOverloaded is the (Anthropic-style) "overloaded" status some providers answer with.
 const statusOverloaded = 529
 
 // Client calls the classifier endpoint. The zero value is not usable; use New.
 type Client struct {
 	URL        string
 	HTTPClient *http.Client
-	// MinBackoff and MaxBackoff bound the wait between retries of a 429 or 529.
+	// MinBackoff and MaxBackoff bound the wait between retries of a 429, 503 or 529.
 	MinBackoff time.Duration
 	MaxBackoff time.Duration
-	// LongContext sends TypeSafe's long-context header, which raises its input limits (Limits); other
-	// providers ignore it.
+	// LongContext turns on the provider's long-context mode, which raises its input limits (Limits).
+	// A provider without one (SupportsLongContext) ignores it.
 	LongContext bool
 
-	key string
+	key  string
+	wire wire
 }
 
-// New returns a client for the endpoint at url, authorized with key.
-func New(url, key string) *Client {
+// New returns a client for the provider's endpoint at url, authorized with key. An unknown provider
+// is an error that matches ErrUnknownProvider.
+func New(provider, url, key string) (*Client, error) {
+	spec, err := codecFor(provider)
+	if err != nil {
+		return nil, err
+	}
 	return &Client{
 		URL:        url,
 		HTTPClient: &http.Client{},
 		MinBackoff: 200 * time.Millisecond,
 		MaxBackoff: 2 * time.Second,
 		key:        key,
-	}
+		wire:       spec.wire,
+	}, nil
 }
 
 // Ask sends req and returns the validated answer to every question, keyed as in req.Questions, and
 // the input tokens the provider counted when it reports them.
-// ctx carries the routing deadline; 429 and 529 are retried with backoff until it would pass.
+// ctx carries the routing deadline; 429, 503 and 529 are retried with backoff until it would pass.
 // Every error has the key redacted.
 func (c *Client) Ask(ctx context.Context, req Request) (Response, error) {
 	if c.key == "" {
 		return Response{}, ErrNoKey
 	}
-	body, err := json.Marshal(req)
+	body, err := c.wire.encode(req)
 	if err != nil {
 		return Response{}, fmt.Errorf("classifier: encode request: %w", err)
 	}
@@ -170,10 +158,10 @@ func (c *Client) Ask(ctx context.Context, req Request) (Response, error) {
 			return Response{}, c.redact(&transportError{fmt.Errorf("classifier: %w", postErr)})
 		}
 		if status == http.StatusOK {
-			resp, decodeErr := decode(data, req.Questions)
+			resp, decodeErr := c.wire.decode(data, req.Questions)
 			return resp, c.redact(decodeErr)
 		}
-		serr := &StatusError{Status: status, Body: c.errorBody(data, req.State), ErrorType: errorType(data)}
+		serr := &StatusError{Status: status, Body: c.errorBody(data, req.State), ErrorType: c.wire.errorType(data)}
 		if !errors.Is(serr, ErrOverloaded) {
 			return Response{}, serr
 		}
@@ -184,20 +172,6 @@ func (c *Client) Ask(ctx context.Context, req Request) (Response, error) {
 	}
 }
 
-// errorType is detail.error_type of an error body, or "" when the body is not JSON of that shape or
-// the type is not a short code.
-func errorType(data []byte) string {
-	var body struct {
-		Detail struct {
-			ErrorType string `json:"error_type"`
-		} `json:"detail"`
-	}
-	if json.Unmarshal(data, &body) != nil || len(body.Detail.ErrorType) > maxErrorType {
-		return ""
-	}
-	return body.Detail.ErrorType
-}
-
 func (c *Client) post(ctx context.Context, body []byte) (int, []byte, http.Header, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL, bytes.NewReader(body))
 	if err != nil {
@@ -206,9 +180,7 @@ func (c *Client) post(ctx context.Context, body []byte) (int, []byte, http.Heade
 	req.Header.Set("Authorization", "Bearer "+c.key)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	if c.LongContext {
-		req.Header.Set(longContextHeader, "true")
-	}
+	c.wire.setHeaders(req.Header, c.LongContext)
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return 0, nil, nil, fmt.Errorf("request: %w", err)
@@ -359,8 +331,10 @@ func (c *Client) redactString(s string) string {
 	return strings.ReplaceAll(s, c.key, redacted)
 }
 
-// stateStrings returns every string value in state, as is and JSON-escaped, longest first so a
-// string is redacted before any shorter one inside it.
+// stateStrings returns every string value in state, as is, JSON-escaped and escaped twice, longest
+// first so a string is redacted before any shorter one inside it. The twice-escaped forms are what an
+// error body echoes when a provider takes the state as JSON text inside a string, as OpenAI does: the
+// text escapes each value once, and the body that carries or quotes it escapes it again.
 func stateStrings(state any) []string {
 	data, err := json.Marshal(state)
 	if err != nil {
@@ -378,13 +352,19 @@ func stateStrings(state any) []string {
 			if v == "" {
 				return
 			}
-			out = append(out, v)
-			escaped := jsonEscaped(v)
-			for i, e := range escaped {
-				if e != v && (i == 0 || e != escaped[0]) {
-					out = append(out, e)
+			forms := []string{v}
+			add := func(candidates ...string) {
+				for _, c := range candidates {
+					if !slices.Contains(forms, c) {
+						forms = append(forms, c)
+					}
 				}
 			}
+			once := jsonEscaped(v)
+			add(once...)
+			// the JSON text of a state is written without HTML escaping, so that form is escaped again
+			add(jsonEscaped(once[noHTMLEscape])...)
+			out = append(out, forms...)
 		case []any:
 			for _, e := range v {
 				walk(e)
@@ -400,8 +380,11 @@ func stateStrings(state any) []string {
 	return out
 }
 
-// jsonEscaped returns v as a JSON string body with and without HTML escaping: Go escapes <, > and &,
-// while other servers echo them as is.
+// noHTMLEscape is the position in jsonEscaped's result of the form without HTML escaping.
+const noHTMLEscape = 1
+
+// jsonEscaped returns v as a JSON string body with and without (noHTMLEscape) HTML escaping: Go
+// escapes <, > and &, while other servers echo them as is.
 func jsonEscaped(v string) []string {
 	out := make([]string, 0, 2)
 	for _, html := range []bool{true, false} {
@@ -430,151 +413,3 @@ type redactedError struct {
 
 func (e *redactedError) Error() string { return e.msg }
 func (e *redactedError) Unwrap() error { return e.err }
-
-// decode parses a 200 body and validates one answer per question sent.
-func decode(data []byte, questions map[string]Question) (Response, error) {
-	var resp response
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return Response{}, fmt.Errorf("classifier: %w: %w", ErrInvalidAnswer, err)
-	}
-	answers := make(map[string]Answer, len(questions))
-	for id, q := range questions {
-		w, ok := resp.Answers[id]
-		if !ok || w == nil || empty(q, *w) && (w.Type == "" || w.Type == q.Type) {
-			return Response{}, fmt.Errorf("classifier: %w: %q", ErrEmptyAnswer, id)
-		}
-		a, err := validate(q, *w)
-		if err != nil {
-			return Response{}, fmt.Errorf("classifier: %w: %q: %w", ErrInvalidAnswer, id, err)
-		}
-		answers[id] = a
-	}
-	return Response{Answers: answers, InputTokens: inputTokens(resp.Usage)}, nil
-}
-
-// inputTokens is usage.input_tokens, or nil when it is missing, null, not a non-negative integer, or
-// the usage is not an object: the count is metadata and never fails a valid answer.
-func inputTokens(usage json.RawMessage) *int {
-	var u struct {
-		InputTokens json.RawMessage `json:"input_tokens"`
-	}
-	if json.Unmarshal(usage, &u) != nil {
-		return nil
-	}
-	n, err := strconv.ParseInt(string(u.InputTokens), 10, 0)
-	if err != nil || n < 0 {
-		return nil
-	}
-	tokens := int(n)
-	return &tokens
-}
-
-// empty reports whether w lacks the value q asks for: the choice, the score or the noul.
-func empty(q Question, w wireAnswer) bool {
-	switch q.Type {
-	case TypeChoice:
-		return w.Choice == ""
-	case TypeScore:
-		return w.Score == nil
-	case TypeNoul:
-		return w.Noul == nil
-	default:
-		return false
-	}
-}
-
-// probabilitySlack is how far the probabilities may sum from 1.
-const probabilitySlack = 0.01
-
-// probabilityRoundoff allows float64 error when summing and comparing boundary values.
-const probabilityRoundoff = 1e-12
-
-func validate(q Question, w wireAnswer) (Answer, error) {
-	if w.Type != "" && w.Type != q.Type {
-		return Answer{}, fmt.Errorf("answer type %q for a %s question", w.Type, q.Type)
-	}
-	switch q.Type {
-	case TypeChoice:
-		return validateChoice(q.Criteria.Names(), w)
-	case TypeScore:
-		return validateScore(q.Levels, w)
-	case TypeNoul:
-		if w.Noul == nil || !unit(*w.Noul) {
-			return Answer{}, errors.New("noul missing or outside [0, 1]")
-		}
-		return Answer{Type: TypeNoul, Noul: *w.Noul}, nil
-	default:
-		return Answer{}, fmt.Errorf("unsupported question type %q", q.Type)
-	}
-}
-
-func validateChoice(options []string, w wireAnswer) (Answer, error) {
-	if !slices.Contains(options, w.Choice) {
-		return Answer{}, fmt.Errorf("choice %q is not an option sent", w.Choice)
-	}
-	if err := validateDistribution(options, w); err != nil {
-		return Answer{}, err
-	}
-	return Answer{Type: TypeChoice, Choice: w.Choice, Probabilities: w.Probabilities, Confidence: *w.Confidence}, nil
-}
-
-// validateDistribution checks the probabilities and confidence shared by Choice and Score.
-func validateDistribution(options []string, w wireAnswer) error {
-	known := make(map[string]bool, len(options))
-	for _, o := range options {
-		known[o] = true
-	}
-	if w.Confidence == nil || !unit(*w.Confidence) {
-		return errors.New("confidence missing or outside [0, 1]")
-	}
-	if len(w.Probabilities) != len(known) {
-		return fmt.Errorf("%d probabilities for %d options", len(w.Probabilities), len(known))
-	}
-	var sum float64
-	for o, p := range w.Probabilities {
-		if !known[o] {
-			return fmt.Errorf("probability for unknown option %q", o)
-		}
-		if !unit(p) {
-			return fmt.Errorf("probability of %q outside [0, 1]", o)
-		}
-		sum += p
-	}
-	if math.Abs(sum-1) > probabilitySlack+probabilityRoundoff {
-		return fmt.Errorf("probabilities sum to %g", sum)
-	}
-	return nil
-}
-
-// validateScore checks the reported score, ordered level probabilities and legend.
-func validateScore(levels []string, w wireAnswer) (Answer, error) {
-	if len(levels) < 2 || len(levels) > 10 {
-		return Answer{}, errors.New("score needs 2 to 10 levels")
-	}
-	if w.Score == nil || math.IsNaN(*w.Score) || math.IsInf(*w.Score, 0) ||
-		*w.Score < 0 || *w.Score > float64(len(levels)-1) {
-		return Answer{}, errors.New("score missing or outside the level range")
-	}
-	options := make([]string, len(levels))
-	for i := range levels {
-		options[i] = strconv.Itoa(i)
-	}
-	if err := validateDistribution(options, w); err != nil {
-		return Answer{}, err
-	}
-	if len(w.Legend) != len(levels) {
-		return Answer{}, errors.New("score legend does not match the levels")
-	}
-	for i, description := range levels {
-		if got, ok := w.Legend[options[i]]; !ok || got != description {
-			return Answer{}, fmt.Errorf("score legend does not match level %d", i)
-		}
-	}
-	return Answer{Type: TypeScore, Score: *w.Score, Legend: w.Legend,
-		Probabilities: w.Probabilities, Confidence: *w.Confidence}, nil
-}
-
-// unit reports whether v is finite and in [0, 1].
-func unit(v float64) bool {
-	return !math.IsNaN(v) && v >= 0 && v <= 1
-}

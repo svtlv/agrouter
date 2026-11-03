@@ -32,7 +32,7 @@ func requestFixture(t *testing.T) (*config.Config, *catalog.Catalog) {
 		Agrouter: config.Agrouter{Timeout: time.Second, LogDir: "logs",
 			RoutingPolicy:    "Prefer the cheapest option that can do the task.",
 			ComplexityPolicy: "Judge the codebase as a whole."},
-		Classifier: config.Classifier{URL: "https://classifier.example.test/v1", Model: "test-classifier",
+		Classifier: config.Classifier{Provider: classifier.ProviderTypeSafe, URL: "https://classifier.example.test/v1", Model: "test-classifier",
 			RequestTokens: 30000, BytesPerToken: 3},
 		CLIs: []config.CLI{
 			{Name: "alpha", Command: "alpha", Description: "Alpha agent."},
@@ -177,7 +177,7 @@ func TestNewQuestionOverBudget(t *testing.T) {
 	}{
 		{"agrouter", "routing_policy", long, []string{"request_tokens", "routing_policy question leaves", "for the state", "beside the anchor"}},
 		{"agrouter", "complexity_policy", long, []string{"request_tokens", "complexity_policy questions leaves", "for the doc state"}},
-		{"classifier", "request_tokens", "100", []string{"request_tokens 100 less", "for the state", "beside the anchor", "for the doc state"}},
+		{"classifier." + classifier.ProviderTypeSafe, "request_tokens", "100", []string{"request_tokens 100 less", "for the state", "beside the anchor", "for the doc state"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.key, func(t *testing.T) {
@@ -190,7 +190,7 @@ func TestNewQuestionOverBudget(t *testing.T) {
 
 			_, err = New(cfg, cat, &mocks.ClassifierMock{})
 			require.ErrorIs(t, err, prompt.ErrQuestionsOverBudget)
-			assert.Contains(t, err.Error(), "config: [classifier]")
+			assert.Contains(t, err.Error(), "config: [classifier.typesafe]")
 			for _, w := range tc.want {
 				assert.Contains(t, err.Error(), w)
 			}
@@ -211,13 +211,22 @@ func TestNewRequestTokensAloneNamesTheKey(t *testing.T) {
 }
 
 func TestNewChecksProviderLimits(t *testing.T) {
-	for _, longContext := range []bool{false, true} {
-		perQuestion, perRequest := classifier.Limits(longContext)
+	tests := []struct {
+		provider    string
+		longContext bool
+	}{
+		{classifier.ProviderTypeSafe, false},
+		{classifier.ProviderTypeSafe, true},
+		{classifier.ProviderOpenAI, false},
+	}
+	for _, tc := range tests {
+		perQuestion, perRequest := classifier.Limits(tc.provider, tc.longContext)
 		limit := min(perQuestion, perRequest)
 		top := limit - providerReserve
-		t.Run(fmt.Sprintf("long_context=%t", longContext), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s/long_context=%t", tc.provider, tc.longContext), func(t *testing.T) {
 			cfg, cat := requestFixture(t)
-			cfg.Classifier.LongContext = longContext
+			cfg.Classifier.Provider = tc.provider
+			cfg.Classifier.LongContext = tc.longContext
 
 			cfg.Classifier.RequestTokens = top
 			r, err := New(cfg, cat, &mocks.ClassifierMock{})
@@ -228,21 +237,55 @@ func TestNewChecksProviderLimits(t *testing.T) {
 			_, err = New(cfg, cat, &mocks.ClassifierMock{})
 			require.ErrorIs(t, err, ErrRequestTokensOverLimit)
 			msg := err.Error()
-			assert.Contains(t, msg, "config: [classifier]")
+			assert.Contains(t, msg, "config: [classifier."+tc.provider+"]: ")
 			assert.Contains(t, msg, fmt.Sprintf("request_tokens = %d", top+1), "the value")
 			assert.Contains(t, msg, fmt.Sprintf("takes %d per request", limit), "the provider limit")
 			assert.Contains(t, msg, fmt.Sprintf("%d reserve", providerReserve), "the reserve")
 			assert.Contains(t, msg, fmt.Sprintf("at most %d", top))
-			assert.Contains(t, msg, fmt.Sprintf("long_context = %t", longContext))
+			if classifier.SupportsLongContext(tc.provider) {
+				assert.Contains(t, msg, fmt.Sprintf("long_context = %t", tc.longContext))
+			} else {
+				assert.NotContains(t, msg, "long_context", "a provider without the mode does not name it")
+			}
 			require.NotErrorIs(t, err, prompt.ErrQuestionsOverBudget)
+		})
+	}
+}
+
+func TestNewLimitFollowsTheSelectedProvider(t *testing.T) {
+	_, typesafe := classifier.Limits(classifier.ProviderTypeSafe, false)
+	_, openai := classifier.Limits(classifier.ProviderOpenAI, false)
+	require.Greater(t, openai, typesafe, "the providers' limits differ")
+	cfg, cat := requestFixture(t)
+	cfg.Classifier.RequestTokens = typesafe
+
+	_, err := New(cfg, cat, &mocks.ClassifierMock{})
+	require.ErrorIs(t, err, ErrRequestTokensOverLimit, "over TypeSafe's limit")
+
+	cfg.Classifier.Provider = classifier.ProviderOpenAI
+	_, err = New(cfg, cat, &mocks.ClassifierMock{})
+	require.NoError(t, err, "under OpenAI's")
+}
+
+func TestNewBudgetErrorNamesTheSelectedSection(t *testing.T) {
+	for _, provider := range classifier.Providers() {
+		t.Run(provider, func(t *testing.T) {
+			cfg, cat := requestFixture(t)
+			cfg.Classifier.Provider = provider
+			cfg.Classifier.RequestTokens = 500
+
+			_, err := New(cfg, cat, &mocks.ClassifierMock{})
+
+			require.ErrorIs(t, err, prompt.ErrQuestionsOverBudget)
+			assert.Contains(t, err.Error(), "config: [classifier."+provider+"]: ")
 		})
 	}
 }
 
 func TestNewLongContextRaisesOnlyTheProviderLimit(t *testing.T) {
 	cfg, cat := requestFixture(t)
-	_, defaultLimit := classifier.Limits(false)
-	_, longLimit := classifier.Limits(true)
+	_, defaultLimit := classifier.Limits(classifier.ProviderTypeSafe, false)
+	_, longLimit := classifier.Limits(classifier.ProviderTypeSafe, true)
 	require.Greater(t, longLimit, defaultLimit)
 	cfg.Classifier.RequestTokens = defaultLimit // over the default limits, under the long ones
 

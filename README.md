@@ -1,6 +1,6 @@
 # agrouter
 
-agrouter picks the coding-agent CLI, model and reasoning effort for a prompt by asking a routing classifier (TypeSafe's Jev by default), from a catalog of Claude Code and Codex options (and any other CLI described in config). Cheap models get trivial work, strong ones get hard work, per call, and the caller never needs to know each CLI's flags.
+agrouter picks the coding-agent CLI, model and reasoning effort for a prompt by asking a routing classifier (TypeSafe's Jev by default, or OpenAI's Decisions API), from a catalog of Claude Code and Codex options (and any other CLI described in config). Cheap models get trivial work, strong ones get hard work, per call, and the caller never needs to know each CLI's flags.
 
 It has two modes:
 
@@ -26,10 +26,20 @@ Both makefiles name the executable `.bin/agrouter` on `master` and `.bin/agroute
 
 On the first routing invocation, agrouter creates `~/.config/agrouter/config` (or the directory selected by `AGROUTER_CONFIG_DIR`) as a commented template. `go install` only installs the executable; `--help` and `--version` do not create config.
 
-Before routing, edit the global config, uncomment `[classifier]` and `api_key`, and set the API key of your classifier (TypeSafe's, with the shipped defaults). Creating the template leaves the key empty:
+Before routing, edit the global config, uncomment `[classifier.typesafe]` and `api_key`, and set the API key of your classifier (TypeSafe's, with the shipped defaults). Creating the template leaves the key empty:
 
 ```ini
-[classifier]
+[classifier.typesafe]
+api_key = your-api-key
+```
+
+For OpenAI instead, select the provider in `[agrouter]` and set the key in its own section (see [Classifier](#classifier)):
+
+```ini
+[agrouter]
+classifier_provider = openai
+
+[classifier.openai]
 api_key = your-api-key
 ```
 
@@ -39,7 +49,7 @@ You can also supply the key through the environment:
 export AGROUTER_CLASSIFIER_API_KEY=...
 ```
 
-The key comes from `--api-key`, then `AGROUTER_CLASSIFIER_API_KEY`, then `api_key` in config. Prefer the environment variable or the global config with user-only permissions: a command-line flag shows up in process listings, and a local `.agrouter/config` is easy to commit. The key is never printed and never reaches the child.
+The key comes from `--api-key`, then `AGROUTER_CLASSIFIER_API_KEY`, then `api_key` in the selected provider's section of the config. Prefer the environment variable or the global config with user-only permissions: a command-line flag shows up in process listings, and a local `.agrouter/config` is easy to commit. The key is never printed and never reaches the child.
 
 ## Usage
 
@@ -60,7 +70,7 @@ The prompt can come from four sources, in any combination: `-p TEXT`, the one po
 | `--prompt-file=PATH` | read prompt text from a file |
 | `--doc=PATH` | a project doc (`CLAUDE.md`, `AGENTS.md`, ...) for routing only; repeatable, never passed to the child |
 | `--verbose` | full agrouter decision details; never affects routing. Before `--` it is agrouter's only; after `--` it is the child's own option |
-| `--api-key=KEY` | the routing classifier's API key; an empty value clears it. In exec, a child's own `--api-key` goes after `--` |
+| `--api-key=KEY` | the API key of the selected classifier provider; an empty value clears it. In exec, a child's own `--api-key` goes after `--` |
 | `-- native args...` | exec only: passed to the child in order, including empty tokens, repeats and later `--`. Agrouter replaces native `--model`/`-m` and `--effort`; its generated selections follow native options (see [Invocation descriptors](#invocation-descriptors)) |
 | `--help`, `--version` | print help or the version and exit |
 
@@ -110,20 +120,20 @@ Complexity uses the classifier's Score question with ten ordered descriptions. T
 
 ### Request size
 
-agrouter cannot count tokens, so it estimates them from bytes and sizes every routing request from these `[classifier]` keys, which depend on the provider:
+agrouter cannot count tokens, so it estimates them from bytes and sizes every routing request from these keys of the selected `[classifier.<provider>]` section:
 
 | Key | Meaning | Default |
 |---|---|---|
-| `long_context` | turn on the routing provider's long-input mode; it raises the provider's limits, not `request_tokens` | `false` |
-| `request_tokens` | the allowance of one routing request: its state plus all its questions; input that does not fit is split into chunks | `30000` |
+| `long_context` | TypeSafe only: turn on its long-input mode; it raises the provider's limits, not `request_tokens`. It is an unknown key in `[classifier.openai]` | `false` |
+| `request_tokens` | the allowance of one routing request: its state plus all its questions; input that does not fit is split into chunks | `30000` (`typesafe`), `250000` (`openai`) |
 | `bytes_per_token` | estimated bytes per token; lower it and the same text counts as more tokens, so it is split sooner | `3` |
 
-The startup check uses TypeSafe's limits (at most 30000 tokens with `long_context = false`, 260000 with `true`) for every `url`, whatever the provider: `request_tokens` must stay 2000 tokens below them, or agrouter exits `2` and names the value and the limit. `long_context` sends TypeSafe's long-context header, which other providers ignore. A request the provider still rejects as too long is never resent. Routing fails with the reason `request_too_long`, and the error says how many tokens agrouter estimated against `request_tokens`.
+The startup check uses the selected provider's limits, not the `url`'s: TypeSafe at most 30000 tokens with `long_context = false` and 260000 with `true`, OpenAI at most 920000. `request_tokens` must stay 2000 tokens below the provider's limit, or agrouter exits `2` and names the value and the limit. TypeSafe's `long_context` sends its long-context header; OpenAI has no such mode and uses its larger context through `request_tokens`. A request the provider still rejects as too long is never resent. Routing fails with the reason `request_too_long`, and the error says how many tokens agrouter estimated against `request_tokens`.
 
-**Known limitation:** with the shipped defaults, log or code heavy prompts can still overflow. Those texts hold more tokens per byte than `bytes_per_token = 3` assumes, so a request agrouter thinks fits can be over the provider's limit, and routing fails with `request_too_long` instead of splitting it. To tune, run with `AGROUTER_DEBUG=1` and compare each request's `tokens: estimated N, provider reported M` line, then lower `bytes_per_token` (`2.5` is a suggested starting point) until the estimate is not below the reported count, or lower `request_tokens`. The other way out is the provider's long-input mode, `long_context = true`: it raises the provider's limits, at the same price but slower and less accurate, and does not raise `request_tokens`, so raise that too:
+**Known limitation:** with the shipped defaults, log or code heavy prompts can still overflow. Those texts hold more tokens per byte than `bytes_per_token = 3` assumes, so a request agrouter thinks fits can be over the provider's limit, and routing fails with `request_too_long` instead of splitting it. To tune, run with `AGROUTER_DEBUG=1` and compare each request's `tokens: estimated N, provider reported M` line, then lower `bytes_per_token` (`2.5` is a suggested starting point) until the estimate is not below the reported count, or lower `request_tokens`. With TypeSafe, the other way out is its long-input mode, `long_context = true`: it raises the provider's limits, at the same price but slower and less accurate, and does not raise `request_tokens`, so raise that too:
 
 ```ini
-[classifier]
+[classifier.typesafe]
 long_context    = true
 request_tokens  = 128000
 bytes_per_token = 2.5
@@ -218,7 +228,7 @@ Decision JSON and the exec selection line explain a failed routing and every `nu
 | `classifier_api_error` | the classifier answered with another error status, including rate limits that outlasted the retries |
 | `classifier_transport_error` | the classifier could not be reached, or the connection failed |
 | `classifier_invalid_answer` | the classifier answered with an answer that does not fit the question |
-| `classifier_empty_answer` | the classifier left a question without an answer, or answered `null` or without the value asked for |
+| `classifier_empty_answer` | the classifier left a question without an answer, answered `null` or without the value asked for, or refused it |
 | `no_decision` | any other reason the classifier could not decide |
 
 | `null_reasons.*.code` | Meaning |
@@ -333,7 +343,7 @@ A local file can change one key without redefining the catalog; `enabled = false
 
 ```ini
 # ~/.config/agrouter/config
-[classifier]
+[classifier.typesafe]
 api_key = ...
 # pin a versioned model id to keep routing stable
 model   = jev-1.13.0
@@ -348,30 +358,34 @@ enabled = false
 
 ### Classifier
 
-The `[classifier]` section says where routing requests go and how big one may be. Any source that accepts the same request body works: switching providers means overriding this one section. The shipped defaults point at TypeSafe's Jev.
+`[agrouter] classifier_provider` picks the routing classifier: `typesafe` (the default) or `openai`. Each provider has its own section, `[classifier.typesafe]` and `[classifier.openai]`, with its own request and response format, so a `url` of another source works only if it accepts that format. The selected section is validated; the other one is checked for typos but not used, so it may stay as it is.
 
-| Key | Meaning | Default |
-|---|---|---|
-| `url` | endpoint the routing requests are POSTed to; any value is accepted, an empty one is a config error | required |
-| `api_key` | bearer key for the endpoint | empty |
-| `model` | the classifier model answering the routing questions (not a catalog model) | required |
-| `long_context`, `request_tokens`, `bytes_per_token` | request size, see [Request size](#request-size) | `false`, `30000`, `3` |
+| Key | Meaning | `typesafe` | `openai` |
+|---|---|---|---|
+| `url` | endpoint the routing requests are POSTed to; an empty one is a config error | `https://api.typesafe.ai/v1/systemone` | `https://api.openai.com/v1/decisions` |
+| `api_key` | bearer key for the endpoint | empty | empty |
+| `model` | the classifier model answering the routing questions (not a catalog model) | `jev-latest` | `gpt-6-luna` |
+| `long_context` | the provider's long-input mode, see [Request size](#request-size) | `false` | not available: an unknown key |
+| `request_tokens` | request size, see [Request size](#request-size) | `30000` | `250000` |
+| `bytes_per_token` | request size, see [Request size](#request-size) | `3` | `3` |
 
-`[agrouter]` keeps `timeout`, `routing_policy`, `complexity_policy` and `log_dir`. Keys that moved to `[classifier]` are unknown keys in `[agrouter]`.
+`[agrouter]` keeps `classifier_provider`, `timeout`, `routing_policy`, `complexity_policy` and `log_dir`. Keys that moved to a classifier section are unknown keys in `[agrouter]`.
 
-Example for OpenAI Luna in the global config. It is unverified: it works only if the endpoint accepts agrouter's request body. Luna takes up to 922K input tokens and bills inputs over 272K at double, so `250000` stays under that step. `long_context = true` only lifts agrouter's startup check; larger requests take longer, so raise `timeout` too:
+Example for OpenAI in the global config. Luna takes up to 1.05M context tokens, and agrouter checks `request_tokens` against a conservative 922K input limit. Inputs over 272K tokens bill the whole request at double the input and cache rates and 1.5x the output rate, so the default `250000` aims to stay below that step. The size estimate is bytes-based and OpenAI's encoding is somewhat larger, so this is not guaranteed: compare the `tokens: estimated N, provider reported M` lines under `AGROUTER_DEBUG=1` on large requests and lower `request_tokens` or `bytes_per_token` if needed. Raise it explicitly if you accept the price. Larger requests take longer, so raise `timeout` too:
 
 ```ini
-[classifier]
-url            = https://api.openai.com/v1/decisions
-api_key        = sk-...
-model          = gpt-6-luna
-long_context   = true
-request_tokens = 250000
-
 [agrouter]
-timeout = 120s
+classifier_provider = openai
+timeout             = 120s
+
+[classifier.openai]
+api_key        = sk-...
+request_tokens = 250000
 ```
+
+The OpenAI wire format has not been checked against live calls beyond its documentation: the too-long error code and the score indexing are still to confirm, and the codec in `pkg/classifier` is the only place that changes if they differ.
+
+**Migrating from `[classifier]`.** The flat `[classifier]` section is gone and agrouter reports `[classifier]: removed; use [classifier.<provider>] and [agrouter] classifier_provider`. Rename the header to `[classifier.typesafe]`, keeping its keys, or move them to `[classifier.openai]` (without `long_context`) and set `classifier_provider = openai`. Config files are not rewritten for you.
 
 CLI names, model IDs and aliases, and effort labels come from the merged config. Adding or renaming any of them, or changing how a CLI is invoked, requires no Go code changes. The embedded defaults document every key.
 
@@ -550,7 +564,7 @@ Ralphex config:
 ```ini
 # ~/.config/ralphex/config
 # agrouter environment variables (set before starting ralphex, not as INI keys):
-# AGROUTER_CLASSIFIER_API_KEY supplies the classifier's key instead of [classifier] api_key; --api-key wins.
+# AGROUTER_CLASSIFIER_API_KEY supplies the selected provider's key instead of its [classifier.<provider>] api_key; --api-key wins.
 # AGROUTER_CONFIG_DIR selects the directory containing agrouter's global config file.
 # AGROUTER_DEBUG=1 enables redacted stderr diagnostics; it does not enable --verbose.
 # no environment overrides exist for model, effort, --doc, --verbose, timeout or the classifier model.

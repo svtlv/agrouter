@@ -32,17 +32,22 @@ type Agrouter struct {
 	// LogDir is where the console log is kept, as configured: a relative path is resolved against the
 	// work directory by the caller.
 	LogDir string
+	// ClassifierProvider names the [classifier.<provider>] section routing requests go to; one of
+	// classifier.Providers(). It is typesafe when no layer sets it.
+	ClassifierProvider string
 }
 
-// Classifier is the [classifier] section: the endpoint routing requests are sent to, and how big one
-// request may be.
+// Classifier is the selected provider's [classifier.<provider>] section: the endpoint routing requests
+// are sent to, and how big one request may be. The other provider's section is decoded and checked
+// for unknown keys and bad values but not kept.
 type Classifier struct {
+	Provider     string // the provider name, one of classifier.Providers(); the section name after "classifier."
 	URL          string
 	APIKey       string
 	APIKeySource string // layer that set api_key, one of the Layer* names
 	Model        string
 	// LongContext opts into the routing provider's long-input mode. It changes only the provider's own
-	// limits; RequestTokens is not raised with it.
+	// limits; RequestTokens is not raised with it. Only a provider with such a mode has the key.
 	LongContext bool
 	// RequestTokens is the token allowance of one routing request: its state plus all its questions.
 	RequestTokens int
