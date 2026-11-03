@@ -275,17 +275,25 @@ Known limitation: `router.estimate`/`questionLen` size questions in the TypeSafe
 - [x] run tests - must pass before next task
 
 ### Task 6: Verify acceptance criteria
-- [ ] verify `classifier_provider` switches providers and defaults to `typesafe`
-- [ ] verify `[classifier.openai]` rejects `long_context` and the flat `[classifier]` gives the migration hint
-- [ ] verify the TypeSafe wire golden and router goldens are unchanged (`git diff pkg/router/testdata pkg/classifier/testdata/typesafe_request.json` empty)
-- [ ] `grep -rn '\[classifier\]' cmd pkg README.md AGENTS.md CLAUDE.md` finds only the migration hint and its tests
-- [ ] run full test suite: `make test`
-- [ ] run linters: `make lint`, also with `GOOS=linux`, `GOOS=darwin` and `--build-tags=eval`
-- [ ] verify coverage stays 80%+ for `pkg/classifier`, `pkg/config`, `pkg/router`
+- [x] verify `classifier_provider` switches providers and defaults to `typesafe`
+  - checked with a built binary, an isolated `AGROUTER_CONFIG_DIR` and a temporary working directory: with no `classifier_provider` the request went to the `[classifier.typesafe]` url (`/v1/systemone`); with `classifier_provider = openai` it went to the `[classifier.openai]` url (`/v1/decisions`); the end-to-end tests in `cmd/agrouter/openai_test.go` cover the decision JSON against an OpenAI-shaped server
+- [x] verify `[classifier.openai]` rejects `long_context` and the flat `[classifier]` gives the migration hint
+  - same binary check: `[classifier.openai] long_context` is `unknown key`; flat `[classifier]` prints `[classifier]: removed; use [classifier.<provider>] and [agrouter] classifier_provider`; an unknown provider value and an unknown `[classifier.<p>]` section both list the valid ones
+- [x] verify the TypeSafe wire golden and router goldens are unchanged (`git diff pkg/router/testdata pkg/classifier/testdata/typesafe_request.json` empty)
+  - `git diff 06e3620 HEAD` on both paths is empty (the wire golden was created in `06e3620` before the refactor), and `pkg/router/testdata` has no change against `master`
+- [x] `grep -rn '\[classifier\]' cmd pkg README.md AGENTS.md CLAUDE.md` finds only the migration hint and its tests
+  - `cmd` and `pkg` are clean: the hits are `pkg/config/load.go` (the hint) and its tests in `pkg/config/classifier_test.go` and `cmd/agrouter/openai_test.go`
+  - ⚠️ `README.md`, `CLAUDE.md` and `AGENTS.md` still describe the flat `[classifier]`; rewriting them is Task 7's scope, so the grep over those three files is repeated there (➕ checkbox added to Task 7)
+- [x] run full test suite: `make test`
+- [x] run linters: `make lint`, also with `GOOS=linux`, `GOOS=darwin` and `--build-tags=eval`
+  - golangci-lint v2.14.0: 0 issues on all four runs, and `go vet -tags eval ./pkg/router` compiles the harness
+- [x] verify coverage stays 80%+ for `pkg/classifier`, `pkg/config`, `pkg/router`
+  - `pkg/classifier` 97.9%, `pkg/config` 99.0%, `pkg/router` 99.3%, `cmd/agrouter` 97.1%
 
 ### Task 7: [Final] Update documentation
 - [ ] README: rewrite "Classifier" for `classifier_provider` and the two sections (key table per provider, an OpenAI example, the migration note from `[classifier]`); update "Request size" (long_context is TypeSafe only), the install and general configuration examples, and the ralphex env comment
 - [ ] CLAUDE.md and AGENTS.md: `[classifier]` rule becomes `[classifier.<provider>]` plus `classifier_provider`; note the `config -> classifier` import edge in the dependency line and the per-provider codec in `pkg/classifier`
+- [ ] ➕ re-run `grep -rn '\[classifier\]' cmd pkg README.md AGENTS.md CLAUDE.md`: only the migration hint, its tests and the README migration note may remain; also update the `classifier.Limits(longContext)` mention in the CLAUDE.md/AGENTS.md request-size rule to `Limits(provider, longContext)`
 - [ ] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
