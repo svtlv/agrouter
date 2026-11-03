@@ -25,6 +25,7 @@
 - **testing approach**: Regular (code first, then tests)
 - complete each task fully before moving to the next
 - make small, focused changes
+- **CRITICAL: leave the user's active agrouter config files untouched throughout implementation.** The previous agrouter version is being used to implement this version and needs the existing config format. Do not edit or migrate `~/.config/agrouter/config`, the config under `AGROUTER_CONFIG_DIR`, or any active `.agrouter/config`. Changes to `pkg/config/defaults/config` and synthetic test fixtures remain part of implementation. The user will manually migrate their active configs after implementation is complete.
 - **CRITICAL: every task MUST include new/updated tests** for code changes in that task
   - tests are not optional - they are a required part of the checklist
   - write unit tests for new functions/methods
@@ -41,6 +42,7 @@
 - **unit tests**: table-driven with testify, required for every task; coverage 80%+ per package
 - codec tests use synthetic `classifier.Request` fixtures and `httptest` servers; OpenAI request goldens live in `pkg/classifier/testdata/openai_*.json` with an `-update` flag
 - config tests use synthetic INI layers, never the shipped values (keep the one smoke test that embedded config loads and validates)
+- tests and development runs requiring the new config format use temporary config directories and an isolated working directory for the local `.agrouter/config`; do not rewrite active configs to make checks pass
 - no UI or e2e suite; `make eval-routing` against the real APIs is manual (Post-Completion)
 
 ## Progress Tracking
@@ -160,7 +162,7 @@ Known limitation: `router.estimate`/`questionLen` size questions in the TypeSafe
 
 ## What Goes Where
 - **Implementation Steps** (`[ ]` checkboxes): code, tests, embedded defaults, README/CLAUDE.md
-- **Post-Completion** (no checkboxes): live API checks, migrating the user's own `.agrouter/config` and global config
+- **Post-Completion** (no checkboxes): live API checks and the user's manual migration of their own `.agrouter/config` and global config after implementation; active config migration is outside the implementation agent's scope
 
 ## Implementation Steps
 
@@ -272,10 +274,10 @@ Known limitation: `router.estimate`/`questionLen` size questions in the TypeSafe
 *Items requiring manual intervention or external systems - no checkboxes, informational only*
 
 **Manual verification:**
-- `make eval-routing` (it now reads the global and local config) with `classifier_provider = typesafe` (no regression) and with `classifier_provider = openai` and an OpenAI key
+- after the user manually migrates their active configs, run `make eval-routing` (it now reads the global and local config) with `classifier_provider = typesafe` (no regression) and with `classifier_provider = openai` and an OpenAI key; any earlier live checks must use isolated temporary configs without modifying active configs
 - one live OpenAI call each to confirm: the too-long error code (send an oversized request), whether `score` is a 0-based level index, and what the score probabilities' `value` holds; fix the codec only if it differs
 - check the refusal path once if a prompt reliably triggers it
 
 **External system updates:**
-- migrate the user's `~/.config/agrouter/config` and any `.agrouter/config` from `[classifier]` to `[classifier.<provider>]` once the new build is installed
+- the user will manually migrate `~/.config/agrouter/config` (or the config under `AGROUTER_CONFIG_DIR`) and any active `.agrouter/config` from `[classifier]` to `[classifier.<provider>]` after implementation, when switching to the new build; the implementation agent must leave these files untouched so the previous version remains usable
 - ralphex configs need no change (same env var and flags)
