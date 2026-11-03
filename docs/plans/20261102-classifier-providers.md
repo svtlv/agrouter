@@ -263,13 +263,16 @@ Known limitation: `router.estimate`/`questionLen` size questions in the TypeSafe
 - Modify: `cmd/agrouter/app.go`, `cmd/agrouter/flags.go`
 - Modify: `cmd/agrouter/app_test.go`, `cmd/agrouter/flags_test.go` (if it pins the help text)
 
-- [ ] `checkLimits` uses `classifier.Limits(c.Provider, c.LongContext)`; it and the `budget` error name `[classifier.<provider>]` and print `long_context` only for providers that support it
-- [ ] `newClassifier` takes `cfg.Classifier.Provider`; an unknown provider from `classifier.New` is a config error (exit 2)
-- [ ] `--api-key` help (`flags.go`) says the key overrides the selected provider's `[classifier.<provider>] api_key`
-- [ ] eval harness loads the embedded, global (`AGROUTER_CONFIG_DIR` or `~/.config/agrouter`) and local layers like the app does, instead of `embedded(t)`, and builds the client from `cfg.Classifier.Provider` with `LongContext` set
-- [ ] tests: limit check per provider (over and under), app end-to-end with `classifier_provider = openai` against an `httptest` server answering in OpenAI's shape (decision JSON printed), the TypeSafe path unchanged
-- [ ] `go vet -tags eval ./pkg/router` compiles the harness
-- [ ] run tests - must pass before next task
+- [x] `checkLimits` uses `classifier.Limits(c.Provider, c.LongContext)`; it and the `budget` error name `[classifier.<provider>]` and print `long_context` only for providers that support it
+- [x] `newClassifier` takes `cfg.Classifier.Provider`; an unknown provider from `classifier.New` is a config error (exit 2)
+- [x] `--api-key` help (`flags.go`) says the key overrides the selected provider's `[classifier.<provider>] api_key`
+- [x] eval harness loads the embedded, global (`AGROUTER_CONFIG_DIR` or `~/.config/agrouter`) and local layers like the app does, instead of `embedded(t)`, and builds the client from `cfg.Classifier.Provider` with `LongContext` set
+- [x] tests: limit check per provider (over and under), app end-to-end with `classifier_provider = openai` against an `httptest` server answering in OpenAI's shape (decision JSON printed), the TypeSafe path unchanged
+- [x] `go vet -tags eval ./pkg/router` compiles the harness
+  - ➕ `sectionName(c)` in `router.go` is the one place the section name is built (`[classifier.<provider>]`); `checkLimits` and the `budget` error both use it, and the router fixture (`requestFixture`) now sets `Provider`, since an unset provider has no limits. The `--api-key` flag description and the long help text both name the selected provider's section
+  - ➕ `cmd/agrouter/openai_test.go` holds `fakeOpenAI` (an OpenAI-shaped `httptest` server) and the end-to-end tests: decision JSON, exec, selected section's model, default provider, unselected section not enforced, and the config errors (unknown provider, `long_context` under openai, flat `[classifier]`, `request_tokens` over OpenAI's limit; all exit 2)
+  - ➕ the eval harness only reads the global and local layers (`evalConfig`, local = the repository root's `.agrouter/config`); it never installs defaults or writes a config
+- [x] run tests - must pass before next task
 
 ### Task 6: Verify acceptance criteria
 - [ ] verify `classifier_provider` switches providers and defaults to `typesafe`

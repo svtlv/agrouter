@@ -55,14 +55,24 @@ func New(cfg *config.Config, cat *catalog.Catalog, client Classifier) (*Router, 
 	return &Router{cfg: cfg, classifier: client, budget: b}, nil
 }
 
+// sectionName is the config section of the selected provider, as error messages name it.
+func sectionName(c config.Classifier) string {
+	return "[classifier." + c.Provider + "]"
+}
+
 // checkLimits is an error when request_tokens, less providerReserve, would pass the provider's
-// limit for one question or for one whole request in the configured mode.
+// limit for one question or for one whole request in the configured mode. long_context is named
+// only for a provider that has the mode.
 func checkLimits(c config.Classifier) error {
-	perQuestion, perRequest := classifier.Limits(classifier.ProviderTypeSafe, c.LongContext)
+	perQuestion, perRequest := classifier.Limits(c.Provider, c.LongContext)
 	limit := min(perQuestion, perRequest)
 	if c.RequestTokens > limit-providerReserve {
-		return fmt.Errorf("config: [classifier]: %w: request_tokens = %d, the provider takes %d per request (long_context = %t) less a %d reserve for the estimate, so at most %d",
-			ErrRequestTokensOverLimit, c.RequestTokens, limit, c.LongContext, providerReserve, limit-providerReserve)
+		mode := ""
+		if classifier.SupportsLongContext(c.Provider) {
+			mode = fmt.Sprintf(" (long_context = %t)", c.LongContext)
+		}
+		return fmt.Errorf("config: %s: %w: request_tokens = %d, the provider takes %d per request%s less a %d reserve for the estimate, so at most %d",
+			sectionName(c), ErrRequestTokensOverLimit, c.RequestTokens, limit, mode, providerReserve, limit-providerReserve)
 	}
 	return nil
 }

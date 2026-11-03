@@ -738,7 +738,7 @@ func TestBudgetPolicyOverBudget(t *testing.T) {
 			tc.mutate(&cfg.Agrouter)
 			_, err := New(cfg, cat, &mocks.ClassifierMock{})
 			require.ErrorIs(t, err, prompt.ErrQuestionsOverBudget)
-			assert.Contains(t, err.Error(), "config: [classifier]")
+			assert.Contains(t, err.Error(), "config: [classifier.typesafe]")
 			for _, w := range tc.want {
 				assert.Contains(t, err.Error(), w)
 			}

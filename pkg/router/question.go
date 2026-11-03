@@ -319,7 +319,7 @@ func budget(cfg *config.Config, cat *catalog.Catalog) (prompt.Budget, error) {
 	policy := prompt.Policy{BytesPerToken: cfg.Classifier.BytesPerToken, RequestTokens: cfg.Classifier.RequestTokens}
 	b, err := prompt.NewBudget(policy, sizes)
 	if err != nil {
-		return b, fmt.Errorf("config: [classifier]: %w", err)
+		return b, fmt.Errorf("config: %s: %w", sectionName(cfg.Classifier), err)
 	}
 	return b, nil
 }

@@ -267,7 +267,7 @@ func (a *app) setup(req *args.Request) (*config.Config, *catalog.Catalog, *route
 	}
 	key, source := config.ResolveAPIKey(req.APIKey.Value, req.APIKey.Set, a.getenv(config.EnvAPIKey), cfg.Classifier)
 	a.debug.apiKey(key, source)
-	client, err := a.newClassifier(classifier.ProviderTypeSafe, cfg.Classifier.URL, key, cfg.Classifier.LongContext)
+	client, err := a.newClassifier(cfg.Classifier.Provider, cfg.Classifier.URL, key, cfg.Classifier.LongContext)
 	if err != nil {
 		return nil, nil, nil, configError{err}
 	}
