@@ -1,0 +1,54 @@
+{
+  "headers": {
+    "TypeSafe-Danger-Zone-Long-Context": ""
+  },
+  "body": {
+    "model": "synthetic-classifier",
+    "input": "{\"docs\":[\"first\",\"second\"],\"prompt\":\"fix \u003cthe\u003e \\\"parser\\\" \u0026 its tests\\nthen stop\"}",
+    "questions": [
+      {
+        "name": "complexity",
+        "type": "score",
+        "instructions": "how hard is the project?",
+        "levels": [
+          {
+            "label": "0",
+            "description": "trivial"
+          },
+          {
+            "label": "1",
+            "description": "moderate"
+          },
+          {
+            "label": "2",
+            "description": "hard"
+          }
+        ]
+      },
+      {
+        "name": "relevance",
+        "type": "predicate",
+        "instructions": "does the chunk matter?\ntrue when: it changes the plan\nfalse when: it does not"
+      },
+      {
+        "name": "route",
+        "type": "choice",
+        "instructions": "{\"policy\":\"prefer cheap\",\"question\":\"which option?\"}",
+        "choices": [
+          {
+            "value": "b@high",
+            "description": "{\"cli\":\"x\",\"effort\":\"high\",\"model\":\"b\"}"
+          },
+          {
+            "value": "a",
+            "description": "plain description"
+          },
+          {
+            "value": "c",
+            "description": "[\"one\",\"two\"]"
+          }
+        ]
+      }
+    ]
+  }
+}

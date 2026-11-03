@@ -46,6 +46,7 @@ type providerSpec struct {
 // all read it, so a provider is supported exactly when it has a codec here.
 var providers = map[string]providerSpec{
 	ProviderTypeSafe: {wire: typesafeWire{}, longContext: true, limits: typesafeLimits},
+	ProviderOpenAI:   {wire: openaiWire{}, limits: openaiLimits},
 }
 
 // Providers returns the supported provider names, sorted.

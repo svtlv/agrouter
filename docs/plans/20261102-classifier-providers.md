@@ -198,13 +198,16 @@ Known limitation: `router.estimate`/`questionLen` size questions in the TypeSafe
 - Create: `pkg/classifier/openai_test.go`
 - Create: `pkg/classifier/testdata/openai_*.json`
 
-- [ ] encode `model`, `input` (compact state JSON text), and `questions` sorted by id with `name` = id
-- [ ] map choice criteria to `choices [{value, description}]` (a string as is, an object or array as compact JSON)
-- [ ] map noul to `predicate` with the true/false criteria folded into the instructions
-- [ ] map score levels to `levels [{label: "0".., description}]`; object instructions become compact JSON text
-- [ ] golden tests (with `-update`) of the actual HTTP body for choice, noul and score requests built from a synthetic catalog
-- [ ] error cases: unsupported question type, unmarshalable criterion value
-- [ ] run tests - must pass before next task
+- [x] encode `model`, `input` (compact state JSON text), and `questions` sorted by id with `name` = id
+- [x] map choice criteria to `choices [{value, description}]` (a string as is, an object or array as compact JSON)
+- [x] map noul to `predicate` with the true/false criteria folded into the instructions
+- [x] map score levels to `levels [{label: "0".., description}]`; object instructions become compact JSON text
+- [x] golden tests (with `-update`) of the actual HTTP body for choice, noul and score requests built from a synthetic catalog
+- [x] error cases: unsupported question type, unmarshalable criterion value
+  - ➕ the codec is registered in `providers` with its `Limits` (922000, no long-context mode) already, so the golden tests go through `New(ProviderOpenAI, ...)`; `decode` is a stub returning `ErrInvalidAnswer` and `errorType` returns "" until Task 3
+  - ➕ a noul criterion named anything but `true`/`false` is an encode error (it would be dropped silently otherwise); the golden is one request with all three types: `testdata/openai_request.json`
+  - ➕ state and instructions text use `SetEscapeHTML(false)`, so the model reads `<` and `&` as they are; Task 3's doubly escaped redaction forms must cover that and the HTML-escaped variant
+- [x] run tests - must pass before next task
 
 ### Task 3: OpenAI codec — response decoding, errors, limits, redaction
 
