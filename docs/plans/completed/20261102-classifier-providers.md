@@ -291,10 +291,11 @@ Known limitation: `router.estimate`/`questionLen` size questions in the TypeSafe
   - `pkg/classifier` 97.9%, `pkg/config` 99.0%, `pkg/router` 99.3%, `cmd/agrouter` 97.1%
 
 ### Task 7: [Final] Update documentation
-- [ ] README: rewrite "Classifier" for `classifier_provider` and the two sections (key table per provider, an OpenAI example, the migration note from `[classifier]`); update "Request size" (long_context is TypeSafe only), the install and general configuration examples, and the ralphex env comment
-- [ ] CLAUDE.md and AGENTS.md: `[classifier]` rule becomes `[classifier.<provider>]` plus `classifier_provider`; note the `config -> classifier` import edge in the dependency line and the per-provider codec in `pkg/classifier`
-- [ ] ➕ re-run `grep -rn '\[classifier\]' cmd pkg README.md AGENTS.md CLAUDE.md`: only the migration hint, its tests and the README migration note may remain; also update the `classifier.Limits(longContext)` mention in the CLAUDE.md/AGENTS.md request-size rule to `Limits(provider, longContext)`
-- [ ] move this plan to `docs/plans/completed/`
+- [x] README: rewrite "Classifier" for `classifier_provider` and the two sections (key table per provider, an OpenAI example, the migration note from `[classifier]`); update "Request size" (long_context is TypeSafe only), the install and general configuration examples, and the ralphex env comment
+- [x] CLAUDE.md and AGENTS.md: `[classifier]` rule becomes `[classifier.<provider>]` plus `classifier_provider`; note the `config -> classifier` import edge in the dependency line and the per-provider codec in `pkg/classifier`
+- [x] ➕ re-run `grep -rn '\[classifier\]' cmd pkg README.md AGENTS.md CLAUDE.md`: only the migration hint, its tests and the README migration note may remain; also update the `classifier.Limits(longContext)` mention in the CLAUDE.md/AGENTS.md request-size rule to `Limits(provider, longContext)`
+- [x] move this plan to `docs/plans/completed/`
+  - README, CLAUDE.md and AGENTS.md (kept identical) now describe `classifier_provider` and the two sections; the only `[classifier]` left outside the hint and its tests is the README migration note, and the dependency line shows the `classifier <- config` edge
 
 ## Post-Completion
 *Items requiring manual intervention or external systems - no checkboxes, informational only*
