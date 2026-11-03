@@ -39,7 +39,7 @@ type app struct {
 	getenv        func(string) string
 	workDir       string
 	embedded      []byte
-	newClassifier func(url, key string, longContext bool) router.Classifier
+	newClassifier func(provider, url, key string, longContext bool) (router.Classifier, error)
 	runner        CommandRunner
 	checker       ReadinessChecker // exec only
 	now           func() time.Time // nil means time.Now
@@ -56,20 +56,23 @@ func newApp(stdin io.Reader, stdout, stderr io.Writer) *app {
 		getenv:   os.Getenv,
 		workDir:  wd,
 		embedded: defaults.Config,
-		newClassifier: func(url, key string, longContext bool) router.Classifier {
-			return newClassifierClient(url, key, longContext)
+		newClassifier: func(provider, url, key string, longContext bool) (router.Classifier, error) {
+			return newClassifierClient(provider, url, key, longContext)
 		},
 		runner:  runner.Runner{},
 		checker: readiness.Checker{Dir: wd},
 	}
 }
 
-// newClassifierClient is the classifier client for the endpoint at url and key, sending the
-// long-context header when longContext is set.
-func newClassifierClient(url, key string, longContext bool) *classifier.Client {
-	c := classifier.New(url, key)
+// newClassifierClient is the classifier client for the provider's endpoint at url and key, with the
+// provider's long-context mode on when longContext is set. An unknown provider is an error.
+func newClassifierClient(provider, url, key string, longContext bool) (*classifier.Client, error) {
+	c, err := classifier.New(provider, url, key)
+	if err != nil {
+		return nil, err
+	}
 	c.LongContext = longContext
-	return c
+	return c, nil
 }
 
 func (a *app) clock() time.Time {
@@ -264,7 +267,11 @@ func (a *app) setup(req *args.Request) (*config.Config, *catalog.Catalog, *route
 	}
 	key, source := config.ResolveAPIKey(req.APIKey.Value, req.APIKey.Set, a.getenv(config.EnvAPIKey), cfg.Classifier)
 	a.debug.apiKey(key, source)
-	rt, err := router.New(cfg, cat, a.newClassifier(cfg.Classifier.URL, key, cfg.Classifier.LongContext))
+	client, err := a.newClassifier(classifier.ProviderTypeSafe, cfg.Classifier.URL, key, cfg.Classifier.LongContext)
+	if err != nil {
+		return nil, nil, nil, configError{err}
+	}
+	rt, err := router.New(cfg, cat, client)
 	if err != nil {
 		return nil, nil, nil, err
 	}

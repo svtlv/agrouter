@@ -1,0 +1,108 @@
+{
+  "default": {
+    "headers": {
+      "TypeSafe-Danger-Zone-Long-Context": ""
+    },
+    "body": {
+      "model": "synthetic-classifier",
+      "state": {
+        "docs": [
+          "first",
+          "second"
+        ],
+        "prompt": "fix \u003cthe\u003e \"parser\" \u0026 its tests\nthen stop"
+      },
+      "questions": {
+        "complexity": {
+          "type": "score",
+          "instructions": "how hard is the project?",
+          "criteria": [
+            "trivial",
+            "moderate",
+            "hard"
+          ]
+        },
+        "relevance": {
+          "type": "noul",
+          "instructions": "does the chunk matter?",
+          "criteria": {
+            "true": "it changes the plan",
+            "false": "it does not"
+          }
+        },
+        "route": {
+          "type": "choice",
+          "instructions": {
+            "policy": "prefer cheap",
+            "question": "which option?"
+          },
+          "criteria": {
+            "b@high": {
+              "cli": "x",
+              "effort": "high",
+              "model": "b"
+            },
+            "a": "plain description",
+            "c": [
+              "one",
+              "two"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "long_context": {
+    "headers": {
+      "TypeSafe-Danger-Zone-Long-Context": "true"
+    },
+    "body": {
+      "model": "synthetic-classifier",
+      "state": {
+        "docs": [
+          "first",
+          "second"
+        ],
+        "prompt": "fix \u003cthe\u003e \"parser\" \u0026 its tests\nthen stop"
+      },
+      "questions": {
+        "complexity": {
+          "type": "score",
+          "instructions": "how hard is the project?",
+          "criteria": [
+            "trivial",
+            "moderate",
+            "hard"
+          ]
+        },
+        "relevance": {
+          "type": "noul",
+          "instructions": "does the chunk matter?",
+          "criteria": {
+            "true": "it changes the plan",
+            "false": "it does not"
+          }
+        },
+        "route": {
+          "type": "choice",
+          "instructions": {
+            "policy": "prefer cheap",
+            "question": "which option?"
+          },
+          "criteria": {
+            "b@high": {
+              "cli": "x",
+              "effort": "high",
+              "model": "b"
+            },
+            "a": "plain description",
+            "c": [
+              "one",
+              "two"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

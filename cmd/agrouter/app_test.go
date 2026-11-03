@@ -361,8 +361,8 @@ func (e *env) app(stdin io.Reader, stdout, stderr io.Writer, child CommandRunner
 		getenv:   os.Getenv,
 		workDir:  e.workDir,
 		embedded: defaults.Config,
-		newClassifier: func(_, key string, longContext bool) router.Classifier {
-			return newClassifierClient(e.jev.srv.URL, key, longContext)
+		newClassifier: func(provider, _, key string, longContext bool) (router.Classifier, error) {
+			return newClassifierClient(provider, e.jev.srv.URL, key, longContext)
 		},
 		runner:  child,
 		checker: e.checker,
@@ -588,7 +588,9 @@ func TestApp_Decision(t *testing.T) {
 func TestNewApp_LongContextReachesClient(t *testing.T) {
 	a := newApp(nil, io.Discard, io.Discard)
 	for _, want := range []bool{false, true} {
-		c, ok := a.newClassifier("http://classifier.test", "key", want).(*classifier.Client)
+		client, err := a.newClassifier(classifier.ProviderTypeSafe, "http://classifier.test", "key", want)
+		require.NoError(t, err)
+		c, ok := client.(*classifier.Client)
 		require.True(t, ok)
 		assert.Equal(t, want, c.LongContext)
 		assert.Equal(t, "http://classifier.test", c.URL)
@@ -660,9 +662,9 @@ func TestApp_ClassifierAPIKeyPrecedence(t *testing.T) {
 			a := e.app(nil, &stdout, &stderr, runner.Runner{})
 			var keys []string
 			factory := a.newClassifier
-			a.newClassifier = func(url, key string, longContext bool) router.Classifier {
+			a.newClassifier = func(provider, url, key string, longContext bool) (router.Classifier, error) {
 				keys = append(keys, key)
-				return factory(url, key, longContext)
+				return factory(provider, url, key, longContext)
 			}
 
 			code := a.run(append(slices.Clone(tc.argv), "fix the typo in README"))
@@ -683,9 +685,9 @@ func TestApp_ClassifierURL(t *testing.T) {
 	a := e.app(nil, &stdout, &stderr, runner.Runner{})
 	var urls []string
 	factory := a.newClassifier
-	a.newClassifier = func(url, key string, longContext bool) router.Classifier {
+	a.newClassifier = func(provider, url, key string, longContext bool) (router.Classifier, error) {
 		urls = append(urls, url)
-		return factory(url, key, longContext)
+		return factory(provider, url, key, longContext)
 	}
 
 	a.run([]string{"fix the typo in README"})
@@ -714,9 +716,9 @@ func TestApp_ClassifierAPIKeyEnvName(t *testing.T) {
 			a := e.app(nil, &stdout, &stderr, runner.Runner{})
 			var keys []string
 			factory := a.newClassifier
-			a.newClassifier = func(url, key string, longContext bool) router.Classifier {
+			a.newClassifier = func(provider, url, key string, longContext bool) (router.Classifier, error) {
 				keys = append(keys, key)
-				return factory(url, key, longContext)
+				return factory(provider, url, key, longContext)
 			}
 
 			a.run([]string{"fix the typo in README"})

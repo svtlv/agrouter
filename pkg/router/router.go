@@ -58,7 +58,7 @@ func New(cfg *config.Config, cat *catalog.Catalog, client Classifier) (*Router, 
 // checkLimits is an error when request_tokens, less providerReserve, would pass the provider's
 // limit for one question or for one whole request in the configured mode.
 func checkLimits(c config.Classifier) error {
-	perQuestion, perRequest := classifier.Limits(c.LongContext)
+	perQuestion, perRequest := classifier.Limits(classifier.ProviderTypeSafe, c.LongContext)
 	limit := min(perQuestion, perRequest)
 	if c.RequestTokens > limit-providerReserve {
 		return fmt.Errorf("config: [classifier]: %w: request_tokens = %d, the provider takes %d per request (long_context = %t) less a %d reserve for the estimate, so at most %d",

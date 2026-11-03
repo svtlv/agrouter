@@ -172,20 +172,24 @@ Known limitation: `router.estimate`/`questionLen` size questions in the TypeSafe
 - Create: `pkg/classifier/wire.go`
 - Create: `pkg/classifier/typesafe.go`
 - Create: `pkg/classifier/testdata/typesafe_request.json`
+- Create: `pkg/classifier/validate.go` (shared validators), `pkg/classifier/golden_test.go` (`-update` flag and golden helper, reused by Task 2)
 - Modify: `pkg/classifier/client.go`
 - Modify: `pkg/classifier/types.go`
 - Modify: `pkg/classifier/client_test.go`
 - Modify: `pkg/router/router.go`, `pkg/router/eval_test.go` and router tests that call `classifier.New`/`Limits`
 - Modify: `cmd/agrouter/app.go`, `cmd/agrouter/app_test.go`
 
-- [ ] define the `wire` interface and provider constants (`ProviderTypeSafe`, `ProviderOpenAI`), `Providers()`, `SupportsLongContext(p)` in `wire.go`
-- [ ] move TypeSafe encoding (`Request`/`Question`/`Criteria` marshaling), `decode`, `errorType` and the long-context header into the `typesafe` codec; keep the neutral types in `types.go`
-- [ ] `StatusError` stays as is; `Is(ErrOverloaded)` matches 429, 503 and 529; `Is(ErrTooLong)` keeps 400 + `max_tokens_exceeded`
-- [ ] change `New(url, key)` to `New(provider, url, key) (*Client, error)` (an unknown provider is an error) and `Limits(longContext)` to `Limits(provider, longContext)` (TypeSafe values unchanged)
-- [ ] update every caller in the same task: `cmd/agrouter/app.go` passes `classifier.ProviderTypeSafe` for now, `checkLimits` uses `Limits(classifier.ProviderTypeSafe, ...)` for now, plus router tests and `eval_test.go`
-- [ ] write a wire-body golden test: an `httptest` server records the actual TypeSafe POST body (and long-context header) for a synthetic request; generate it **before** the refactor from the current client so it pins today's bytes
-- [ ] tests for unknown provider, `Providers()`, `SupportsLongContext`, 503 retried like 429/529
-- [ ] run `make test` and `go vet -tags eval ./pkg/router`; router goldens and the wire golden must be unchanged
+- [x] define the `wire` interface and provider constants (`ProviderTypeSafe`, `ProviderOpenAI`), `Providers()`, `SupportsLongContext(p)` in `wire.go`
+- [x] move TypeSafe encoding (`Request`/`Question`/`Criteria` marshaling), `decode`, `errorType` and the long-context header into the `typesafe` codec; keep the neutral types in `types.go`
+- [x] `StatusError` stays as is; `Is(ErrOverloaded)` matches 429, 503 and 529; `Is(ErrTooLong)` keeps 400 + `max_tokens_exceeded`
+- [x] change `New(url, key)` to `New(provider, url, key) (*Client, error)` (an unknown provider is an error) and `Limits(longContext)` to `Limits(provider, longContext)` (TypeSafe values unchanged)
+- [x] update every caller in the same task: `cmd/agrouter/app.go` passes `classifier.ProviderTypeSafe` for now, `checkLimits` uses `Limits(classifier.ProviderTypeSafe, ...)` for now, plus router tests and `eval_test.go`
+  - ➕ done early so Task 5 only swaps the constant: `app.newClassifier` already takes the provider and returns an error (an unknown provider is a `configError`); `setup` still passes `classifier.ProviderTypeSafe`
+  - the `Question`/`Criteria` `MarshalJSON` methods moved to `typesafe.go` but stay methods of the neutral types: the router goldens and `questionLen` marshal them directly in the TypeSafe shape
+  - ➕ `ErrUnknownProvider` sentinel (Task 5 maps it to a config error); `Providers()` is derived from the codec table, so `openai` is listed once Task 2 registers its codec; `validate.go` holds the shared validators over `rawAnswer`
+- [x] write a wire-body golden test: an `httptest` server records the actual TypeSafe POST body (and long-context header) for a synthetic request; generate it **before** the refactor from the current client so it pins today's bytes
+- [x] tests for unknown provider, `Providers()`, `SupportsLongContext`, 503 retried like 429/529
+- [x] run `make test` and `go vet -tags eval ./pkg/router`; router goldens and the wire golden must be unchanged
 
 ### Task 2: OpenAI codec — request encoding
 

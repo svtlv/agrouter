@@ -23,7 +23,9 @@ func TestEvalRouting(t *testing.T) {
 		t.Skip(config.EnvAPIKey + " is not set")
 	}
 	cfg, cat := embedded(t)
-	r, err := New(cfg, cat, classifier.New(cfg.Classifier.URL, key))
+	client, err := classifier.New(classifier.ProviderTypeSafe, cfg.Classifier.URL, key)
+	require.NoError(t, err)
+	r, err := New(cfg, cat, client)
 	require.NoError(t, err)
 	cases, err := loadEvalCases(evalDir, cat)
 	require.NoError(t, err)

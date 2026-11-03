@@ -212,7 +212,7 @@ func TestNewRequestTokensAloneNamesTheKey(t *testing.T) {
 
 func TestNewChecksProviderLimits(t *testing.T) {
 	for _, longContext := range []bool{false, true} {
-		perQuestion, perRequest := classifier.Limits(longContext)
+		perQuestion, perRequest := classifier.Limits(classifier.ProviderTypeSafe, longContext)
 		limit := min(perQuestion, perRequest)
 		top := limit - providerReserve
 		t.Run(fmt.Sprintf("long_context=%t", longContext), func(t *testing.T) {
@@ -241,8 +241,8 @@ func TestNewChecksProviderLimits(t *testing.T) {
 
 func TestNewLongContextRaisesOnlyTheProviderLimit(t *testing.T) {
 	cfg, cat := requestFixture(t)
-	_, defaultLimit := classifier.Limits(false)
-	_, longLimit := classifier.Limits(true)
+	_, defaultLimit := classifier.Limits(classifier.ProviderTypeSafe, false)
+	_, longLimit := classifier.Limits(classifier.ProviderTypeSafe, true)
 	require.Greater(t, longLimit, defaultLimit)
 	cfg.Classifier.RequestTokens = defaultLimit // over the default limits, under the long ones
 
