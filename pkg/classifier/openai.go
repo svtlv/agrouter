@@ -240,9 +240,10 @@ func (openaiWire) decode(data []byte, questions map[string]Question) (Response, 
 	// a name is never echoed back unless it is one of ours: it comes from the server
 	byName := make(map[string]*openaiAnswer, len(resp.Answers))
 	for i, a := range resp.Answers {
-		switch _, known := questions[openaiName(a)]; {
-		case a == nil:
+		if a == nil {
 			return Response{}, fmt.Errorf("classifier: %w: answer %d is null", ErrInvalidAnswer, i)
+		}
+		switch _, known := questions[a.Name]; {
 		case !known:
 			return Response{}, fmt.Errorf("classifier: %w: answer %d is for a question that was not sent", ErrInvalidAnswer, i)
 		case byName[a.Name] != nil:
@@ -272,14 +273,6 @@ func (openaiWire) decode(data []byte, questions map[string]Question) (Response, 
 		}
 	}
 	return Response{Answers: answers, InputTokens: inputTokens(resp.Usage)}, nil
-}
-
-// openaiName is the name of a, or "" for a null answer.
-func openaiName(a *openaiAnswer) string {
-	if a == nil {
-		return ""
-	}
-	return a.Name
 }
 
 // refused reports whether the model declined to answer: an answer of the refusal type, or one that

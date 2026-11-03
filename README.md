@@ -228,7 +228,7 @@ Decision JSON and the exec selection line explain a failed routing and every `nu
 | `classifier_api_error` | the classifier answered with another error status, including rate limits that outlasted the retries |
 | `classifier_transport_error` | the classifier could not be reached, or the connection failed |
 | `classifier_invalid_answer` | the classifier answered with an answer that does not fit the question |
-| `classifier_empty_answer` | the classifier left a question without an answer, or answered `null` or without the value asked for |
+| `classifier_empty_answer` | the classifier left a question without an answer, answered `null` or without the value asked for, or refused it |
 | `no_decision` | any other reason the classifier could not decide |
 
 | `null_reasons.*.code` | Meaning |
@@ -371,7 +371,7 @@ enabled = false
 
 `[agrouter]` keeps `classifier_provider`, `timeout`, `routing_policy`, `complexity_policy` and `log_dir`. Keys that moved to a classifier section are unknown keys in `[agrouter]`.
 
-Example for OpenAI in the global config. Luna takes up to 1.05M context tokens, and agrouter checks `request_tokens` against a conservative 922K input limit. Inputs over 272K tokens bill the whole request at double the input and cache rates and 1.5x the output rate, so the default `250000` stays below that step; raise it explicitly if you accept the price. Larger requests take longer, so raise `timeout` too:
+Example for OpenAI in the global config. Luna takes up to 1.05M context tokens, and agrouter checks `request_tokens` against a conservative 922K input limit. Inputs over 272K tokens bill the whole request at double the input and cache rates and 1.5x the output rate, so the default `250000` aims to stay below that step. The size estimate is bytes-based and OpenAI's encoding is somewhat larger, so this is not guaranteed: compare the `tokens: estimated N, provider reported M` lines under `AGROUTER_DEBUG=1` on large requests and lower `request_tokens` or `bytes_per_token` if needed. Raise it explicitly if you accept the price. Larger requests take longer, so raise `timeout` too:
 
 ```ini
 [agrouter]

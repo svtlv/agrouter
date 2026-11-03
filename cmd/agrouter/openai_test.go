@@ -7,6 +7,8 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"sync"
@@ -205,6 +207,28 @@ func TestApp_OpenAIProvider(t *testing.T) {
 		assert.Equal(t, []string{"model", "effort"}, stages, "exec fixes the cli stage")
 	})
 
+	t.Run("--doc sends the complexity score question through the OpenAI encoder", func(t *testing.T) {
+		e := newEnv(t)
+		e.globalConfig("[agrouter]\nclassifier_provider = openai\n")
+		require.NoError(t, os.WriteFile(filepath.Join(e.workDir, "project.md"), []byte("DOC TEXT\n"), 0o600))
+		f := newFakeOpenAI(t)
+		f.pick = "claude-sonnet-5-5@low"
+		f.level = "8"
+		var stdout, stderr bytes.Buffer
+		var providers []string
+
+		code := e.openaiApp(f, &providers, &stdout, &stderr).run([]string{"--doc", "project.md", "fix the typo in README"})
+
+		require.Equal(t, 0, code, stderr.String())
+		d := decision(t, stdout.String())
+		assert.Equal(t, "8.0/10", d["project_complexity"], "the score answer was decoded from OpenAI's shape")
+		assert.Equal(t, "claude-sonnet-5-5", d["model"])
+		inputs, _, _ := f.seen()
+		require.NotEmpty(t, inputs)
+		assert.JSONEq(t, `{"docs":["DOC TEXT\n"]}`, inputs[0], "the docs are the first request's input")
+		assert.NotContains(t, stdout.String(), "DOC TEXT")
+	})
+
 	t.Run("no classifier_provider selects the default, TypeSafe", func(t *testing.T) {
 		e := newEnv(t)
 		e.jev.pick = "claude-sonnet-5-5@low"
@@ -234,6 +258,43 @@ func TestApp_OpenAIProvider(t *testing.T) {
 		require.Equal(t, 0, r.code, r.stderr)
 		assert.Equal(t, "claude-sonnet-5-5", decision(t, r.stdout)["model"])
 	})
+}
+
+// TestApp_OpenAIErrorStatuses checks that OpenAI's error responses reach the neutral reason codes.
+func TestApp_OpenAIErrorStatuses(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		reason string
+	}{
+		{name: "too long", status: http.StatusBadRequest, body: `{"error":{"code":"context_length_exceeded","message":"too long"}}`, reason: reasonTooLong},
+		{name: "unauthorized", status: http.StatusUnauthorized, body: `{"error":{"code":"invalid_api_key","message":"bad key"}}`, reason: reasonUnauthorized},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.status)
+				_, _ = io.WriteString(w, tt.body)
+			}))
+			t.Cleanup(srv.Close)
+			e := newEnv(t)
+			e.globalConfig("[agrouter]\nclassifier_provider = openai\n")
+			var stdout, stderr bytes.Buffer
+			a := e.app(nil, &stdout, &stderr, runner.Runner{})
+			a.newClassifier = func(provider, _, key string, longContext bool) (router.Classifier, error) {
+				return newClassifierClient(provider, srv.URL, key, longContext)
+			}
+
+			code := a.run([]string{"fix the typo in README"})
+
+			assert.Equal(t, 2, code, stderr.String())
+			reason, ok := decision(t, stdout.String())["reason"].(map[string]any)
+			require.True(t, ok, stdout.String())
+			assert.Equal(t, tt.reason, reason["code"])
+		})
+	}
 }
 
 func TestApp_ClassifierProviderErrors(t *testing.T) {

@@ -516,6 +516,22 @@ func TestOpenAISetHeaders(t *testing.T) {
 	}
 }
 
+// TestOpenAIClientSendsNoTypeSafeHeader checks that LongContext on an OpenAI client does not leak
+// TypeSafe's long-context header into the request.
+func TestOpenAIClientSendsNoTypeSafeHeader(t *testing.T) {
+	var got http.Header
+	c := openaiClient(t, func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.WriteHeader(http.StatusBadRequest)
+	})
+	c.LongContext = true
+
+	_, err := c.Ask(context.Background(), Request{Model: "m", State: "s", Questions: map[string]Question{"q": {Type: TypeChoice, Instructions: "which?", Criteria: Criteria{{Name: "a", Value: "x"}, {Name: "b", Value: "y"}}}}})
+
+	require.Error(t, err)
+	assert.Empty(t, got.Get(longContextHeader))
+}
+
 // openaiClient is an OpenAI client against a server that answers every request with h.
 func openaiClient(t *testing.T, h http.HandlerFunc) *Client {
 	t.Helper()

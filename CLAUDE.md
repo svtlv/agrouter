@@ -43,10 +43,10 @@ Dependencies point one way: `classifier` <- `config` <- `catalog` <- `router` (`
 - Test behavior, not the current configuration contents. Do not pin the shipped model list, model versions, option counts, default values, invocation descriptors, or equality with a documentation config block. Use explicit synthetic fixtures for catalog, filtering, lookup, and request-format tests; keep a smoke test that embedded config loads and validates.
 - Readiness probes are tested with synthetic jsonl fixtures in `pkg/readiness/testdata/{control,rpc}` replayed by a fake peer; no test starts a real CLI.
 - Child processes: the test binary doubles as the fake CLI when `GO_WANT_HELPER_PROCESS=1` (`cmd/agrouter/app_test.go`, `pkg/runner/runner_test.go`, `pkg/readiness/readiness_test.go`); it records argv, stdin and env. The classifier is an `httptest` server or the moq mock.
-- Golden requests in `pkg/router/testdata` use a synthetic catalog, independent of the embedded defaults: `go test ./pkg/router -update` rewrites them.
+- Golden requests in `pkg/router/testdata` use a synthetic catalog, independent of the embedded defaults: `go test ./pkg/router -update` rewrites them. Wire-body goldens in `pkg/classifier/testdata` pin each provider's POST body (`go test ./pkg/classifier -update`); TypeSafe's must stay byte-identical, so never regenerate it casually.
 - Platform tests sit behind build tags (`runner_unix_test.go`, `runner_windows_test.go`) and only run on their own OS in CI.
 - `.gitattributes` forces LF so fixtures and embedded defaults are byte-identical on Windows.
-- `make eval-routing` runs `//go:build eval` tests against the real classifier API (needs `AGROUTER_CLASSIFIER_API_KEY`); never in CI.
+- `make eval-routing` runs `//go:build eval` tests against the real classifier API (needs `AGROUTER_CLASSIFIER_API_KEY`, the key for the selected `classifier_provider`; it reads the embedded, global and local config); never in CI.
 
 ## Commands
 
