@@ -141,8 +141,8 @@ Redaction: OpenAI gets the state as JSON text inside the `input` string, so an e
 |---|---|
 | matched by `name`; missing or `refusal` | `ErrEmptyAnswer` (refusal says "refused" in the error) |
 | `choice` (string; a boolean is invalid) | `Choice`, `Probabilities` map from `[{value, probability}]`, `Confidence` |
-| `predicate.probability` | `Noul` (probability of "true") |
-| `score` | `Score`, `Probabilities` keyed by label `"0".."n-1"`, `Legend` rebuilt from the request's levels, `Confidence` |
+| top-level `probability` of a `predicate` answer | `Noul` (probability of "true") |
+| `score` | `Score`, `Probabilities` from `[{label, value, probability}]` keyed by the integer `value` as text (`"0".."n-1"`, the labels sent), `Legend` rebuilt from the request's levels, `Confidence` |
 | `usage.input_tokens` | `InputTokens` (same permissive reader) |
 
 The same validators (`validateChoice`, `validateDistribution`, `validateScore`, `unit`) run on the converted answer, so both providers share one definition of a valid answer.
@@ -225,7 +225,7 @@ Known limitation: `router.estimate`/`questionLen` size questions in the TypeSafe
 - [x] tests via `httptest`: valid choice, predicate and score responses; refusal; duplicate or extra names; too-long 400 matches `ErrTooLong`; 429 retry then 200; 401
 - [x] redaction regression tests: an OpenAI error body echoing the encoded `input` with a quoted, multiline prompt containing `<`, `&` is fully redacted; the TypeSafe echo tests still pass
   - ➕ `Limits(ProviderOpenAI, _)` = 922000 was already registered in Task 2 (`TestOpenAILimits`); this task only added the decode side
-  - ⚠️ the response shape is the plan's tables made literal, unverified against a live call: `answers[]` of `{name, type, refusal, choice, predicate: {probability}, score, probabilities: [{value, probability}], confidence}`. A `predicate` answer has type `predicate`; a refusal is a `refusal` field or type `refusal`. All of it lives in `openaiAnswer`, `raw` and `distribution` in `openai.go`
+  - ⚠️ the response shape is the plan's tables made literal, unverified against a live call: `answers[]` of `{name, type, refusal, choice, probability (predicate), score, probabilities: [{value, probability}] (a score's also `label`, with an integer `value`), confidence}`. A `predicate` answer has type `predicate`; a refusal is a `refusal` field or type `refusal`. All of it lives in `openaiAnswer`, `raw` and `distribution` in `openai.go`
   - ➕ a refusal's text and an unknown answer name are never put in the error (the server wrote them and they may quote the prompt); an unknown name is reported by its position. Questions are checked in id order, so an invalid body always names the same one
   - ➕ `stateStrings` adds, for each string, the twice-escaped forms of its no-HTML once-escaped form (the text OpenAI is sent), with and without HTML escaping; the regression tests fail without that line
 - [x] run tests - must pass before next task

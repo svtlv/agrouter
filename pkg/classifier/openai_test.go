@@ -249,9 +249,9 @@ func TestOpenAILimits(t *testing.T) {
 const (
 	oaRoute = `{"name":"route","type":"choice","choice":"a","probabilities":` +
 		`[{"value":"a","probability":0.7},{"value":"b@high","probability":0.3}],"confidence":0.6}`
-	oaRelevance  = `{"name":"relevance","type":"predicate","predicate":{"probability":0.8}}`
+	oaRelevance  = `{"name":"relevance","type":"predicate","probability":0.8}`
 	oaComplexity = `{"name":"complexity","type":"score","score":1.4,"probabilities":` +
-		`[{"value":"0","probability":0.1},{"value":"1","probability":0.5},{"value":"2","probability":0.4}],"confidence":0.5}`
+		`[{"label":"0","value":0,"probability":0.1},{"label":"1","value":1,"probability":0.5},{"label":"2","value":2,"probability":0.4}],"confidence":0.5}`
 )
 
 // oaBody is a 200 body with the given answers and a usage count of 42.
@@ -355,7 +355,7 @@ func TestOpenAIDecodeEmptyAnswer(t *testing.T) {
 		{name: "choice null", body: oaBody(`{"name":"route","choice":null}`, oaRelevance, oaComplexity), id: "route"},
 		{name: "choice empty", body: oaBody(`{"name":"route","choice":""}`, oaRelevance, oaComplexity), id: "route"},
 		{name: "predicate missing", body: oaBody(oaRoute, `{"name":"relevance","type":"predicate"}`, oaComplexity), id: "relevance"},
-		{name: "predicate without a probability", body: oaBody(oaRoute, `{"name":"relevance","predicate":{}}`, oaComplexity), id: "relevance"},
+		{name: "predicate without a probability", body: oaBody(oaRoute, `{"name":"relevance","type":"predicate","probability":null}`, oaComplexity), id: "relevance"},
 		{name: "score missing", body: oaBody(oaRoute, oaRelevance, `{"name":"complexity","type":"score"}`), id: "complexity"},
 		{name: "score null", body: oaBody(oaRoute, oaRelevance, `{"name":"complexity","score":null}`), id: "complexity"},
 	}
@@ -444,16 +444,17 @@ func TestOpenAIDecodeInvalidAnswer(t *testing.T) {
 			want: "probability 0 needs a value and a probability"},
 		{name: "a null entry", body: oaBody(probs(`[null]`), oaRelevance, oaComplexity), want: "probability 0 needs"},
 		{name: "probabilities as an object", body: oaBody(probs(`{"a":0.7,"b@high":0.3}`), oaRelevance, oaComplexity)},
-		{name: "a predicate probability over 1", body: oaBody(oaRoute, `{"name":"relevance","predicate":{"probability":1.5}}`, oaComplexity),
+		{name: "a predicate probability over 1", body: oaBody(oaRoute, `{"name":"relevance","probability":1.5}`, oaComplexity),
 			want: "noul missing or outside [0, 1]"},
-		{name: "a predicate probability below 0", body: oaBody(oaRoute, `{"name":"relevance","predicate":{"probability":-0.1}}`, oaComplexity),
+		{name: "a predicate probability below 0", body: oaBody(oaRoute, `{"name":"relevance","probability":-0.1}`, oaComplexity),
 			want: "noul missing or outside [0, 1]"},
-		{name: "a predicate that is a number", body: oaBody(oaRoute, `{"name":"relevance","predicate":0.8}`, oaComplexity)},
+		{name: "a predicate probability that is a string", body: oaBody(oaRoute, `{"name":"relevance","probability":"0.8"}`, oaComplexity)},
+		{name: "a score level index that is a string", body: oaBody(oaRoute, oaRelevance, strings.Replace(oaComplexity, `"value":2`, `"value":"2"`, 1))},
 		{name: "a score over the levels", body: oaBody(oaRoute, oaRelevance, strings.Replace(oaComplexity, `"score":1.4`, `"score":3`, 1)),
 			want: "outside the level range"},
 		{name: "a negative score", body: oaBody(oaRoute, oaRelevance, strings.Replace(oaComplexity, `"score":1.4`, `"score":-1`, 1)),
 			want: "outside the level range"},
-		{name: "a score level that does not exist", body: oaBody(oaRoute, oaRelevance, strings.Replace(oaComplexity, `"value":"2"`, `"value":"3"`, 1)),
+		{name: "a score level that does not exist", body: oaBody(oaRoute, oaRelevance, strings.Replace(oaComplexity, `"value":2`, `"value":3`, 1)),
 			want: "unknown option"},
 		{name: "a score without probabilities", body: oaBody(oaRoute, oaRelevance, `{"name":"complexity","score":1,"confidence":0.5}`),
 			want: "0 probabilities for 3 options"},
@@ -474,7 +475,7 @@ func TestOpenAIDecodeInvalidAnswer(t *testing.T) {
 // TestOpenAIDecodeDeterministic: the questions are checked in id order, so the same bad body always
 // names the same one.
 func TestOpenAIDecodeDeterministic(t *testing.T) {
-	body := oaBody(`{"name":"route","choice":"z","confidence":0.6}`, `{"name":"relevance","predicate":{"probability":3}}`, oaComplexity)
+	body := oaBody(`{"name":"route","choice":"z","confidence":0.6}`, `{"name":"relevance","probability":3}`, oaComplexity)
 	for range 20 {
 		_, err := openaiWire{}.decode([]byte(body), oaQuestions())
 		require.ErrorIs(t, err, ErrInvalidAnswer)

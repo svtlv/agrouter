@@ -76,7 +76,7 @@ func (f *fakeOpenAI) handle(w http.ResponseWriter, r *http.Request) {
 	for _, q := range req.Questions {
 		switch q.Type {
 		case "predicate":
-			answers = append(answers, map[string]any{"name": q.Name, "type": q.Type, "predicate": map[string]any{"probability": 0.5}})
+			answers = append(answers, map[string]any{"name": q.Name, "type": q.Type, "probability": 0.5})
 		case "score":
 			rating, err := strconv.ParseFloat(level, 64)
 			if err != nil {
@@ -95,7 +95,7 @@ func (f *fakeOpenAI) handle(w http.ResponseWriter, r *http.Request) {
 				case low + 1:
 					p = score - float64(low)
 				}
-				probs = append(probs, map[string]any{"value": lv.Label, "probability": p})
+				probs = append(probs, map[string]any{"label": lv.Label, "value": i, "probability": p})
 			}
 			answers = append(answers, map[string]any{"name": q.Name, "type": q.Type, "score": score, "probabilities": probs, "confidence": 0.9})
 		case "choice":

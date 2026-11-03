@@ -202,28 +202,31 @@ type openaiResponse struct {
 }
 
 // openaiAnswer is one answer. Which fields are set depends on its type: a choice has Choice, a
-// predicate has Predicate and a score has Score; a choice and a score have Probabilities and
-// Confidence. A refusal replaces all of them. Pointers and raw messages tell a missing value from
-// zero, and a value of the wrong kind from a missing one.
+// predicate has Probability (at the top level of the answer) and a score has Score; a choice and a
+// score have Probabilities and Confidence. A refusal replaces all of them. Pointers and raw messages
+// tell a missing value from zero, and a value of the wrong kind from a missing one. Probabilities stay
+// raw because their entries differ by type: a choice's carry a string value, a score's an integer
+// level index (and a label).
 type openaiAnswer struct {
-	Name          string              `json:"name"`
-	Type          string              `json:"type"`
-	Refusal       json.RawMessage     `json:"refusal"`
-	Choice        json.RawMessage     `json:"choice"`
-	Predicate     *openaiPredicate    `json:"predicate"`
-	Score         *float64            `json:"score"`
-	Probabilities []openaiProbability `json:"probabilities"`
-	Confidence    *float64            `json:"confidence"`
+	Name          string          `json:"name"`
+	Type          string          `json:"type"`
+	Refusal       json.RawMessage `json:"refusal"`
+	Choice        json.RawMessage `json:"choice"`
+	Probability   *float64        `json:"probability"`
+	Score         *float64        `json:"score"`
+	Probabilities json.RawMessage `json:"probabilities"`
+	Confidence    *float64        `json:"confidence"`
 }
 
-// openaiPredicate is a predicate's answer: the probability that it is true.
-type openaiPredicate struct {
+// openaiChoiceProbability is the probability of one choice value.
+type openaiChoiceProbability struct {
+	Value       *string  `json:"value"`
 	Probability *float64 `json:"probability"`
 }
 
-// openaiProbability is the probability of one choice value or score label.
-type openaiProbability struct {
-	Value       *string  `json:"value"`
+// openaiScoreProbability is the probability of one score level: Value is its 0-based index.
+type openaiScoreProbability struct {
+	Value       *int64   `json:"value"`
 	Probability *float64 `json:"probability"`
 }
 
@@ -298,12 +301,12 @@ func (a *openaiAnswer) raw(q Question) (rawAnswer, error) {
 		if w.Choice, err = choiceValue(a.Choice); err != nil {
 			return rawAnswer{}, err
 		}
-		if w.Probabilities, err = distribution(a.Probabilities); err != nil {
+		if w.Probabilities, err = choiceDistribution(a.Probabilities); err != nil {
 			return rawAnswer{}, err
 		}
 	case TypeScore:
 		w.Score, w.Confidence = a.Score, a.Confidence
-		if w.Probabilities, err = distribution(a.Probabilities); err != nil {
+		if w.Probabilities, err = scoreDistribution(a.Probabilities); err != nil {
 			return rawAnswer{}, err
 		}
 		w.Legend = make(map[string]string, len(q.Levels))
@@ -311,9 +314,7 @@ func (a *openaiAnswer) raw(q Question) (rawAnswer, error) {
 			w.Legend[strconv.Itoa(i)] = level
 		}
 	case TypeNoul:
-		if a.Predicate != nil {
-			w.Noul = a.Predicate.Probability
-		}
+		w.Noul = a.Probability
 	}
 	return w, nil
 }
@@ -331,9 +332,14 @@ func choiceValue(raw json.RawMessage) (string, error) {
 	return choice, nil
 }
 
-// distribution turns the [{value, probability}] list into the neutral map. An entry missing either
-// field, or a value listed twice, is an error: the second would silently replace the first.
-func distribution(entries []openaiProbability) (map[string]float64, error) {
+// choiceDistribution turns a choice's [{value, probability}] list into the neutral map. An entry
+// missing either field, or a value listed twice, is an error: the second would silently replace the
+// first. Missing or null probabilities are an empty map.
+func choiceDistribution(raw json.RawMessage) (map[string]float64, error) {
+	var entries []openaiChoiceProbability
+	if err := decodeList(raw, &entries); err != nil {
+		return nil, err
+	}
 	out := make(map[string]float64, len(entries))
 	for i, e := range entries {
 		if e.Value == nil || e.Probability == nil {
@@ -345,4 +351,37 @@ func distribution(entries []openaiProbability) (map[string]float64, error) {
 		out[*e.Value] = *e.Probability
 	}
 	return out, nil
+}
+
+// scoreDistribution turns a score's [{value, probability}] list, whose value is the integer level
+// index, into the neutral map keyed by that index as text: the labels the request gave the levels.
+// Rules are those of choiceDistribution.
+func scoreDistribution(raw json.RawMessage) (map[string]float64, error) {
+	var entries []openaiScoreProbability
+	if err := decodeList(raw, &entries); err != nil {
+		return nil, err
+	}
+	out := make(map[string]float64, len(entries))
+	for i, e := range entries {
+		if e.Value == nil || e.Probability == nil {
+			return nil, fmt.Errorf("probability %d needs a value and a probability", i)
+		}
+		key := strconv.FormatInt(*e.Value, 10)
+		if _, repeated := out[key]; repeated {
+			return nil, fmt.Errorf("probability %d repeats the value of an earlier one", i)
+		}
+		out[key] = *e.Probability
+	}
+	return out, nil
+}
+
+// decodeList reads a JSON array into v; a missing or null list leaves v empty.
+func decodeList(raw json.RawMessage, v any) error {
+	if r := bytes.TrimSpace(raw); len(r) == 0 || string(r) == "null" {
+		return nil
+	}
+	if err := json.Unmarshal(raw, v); err != nil {
+		return errors.New("probabilities are not a list of entries")
+	}
+	return nil
 }
