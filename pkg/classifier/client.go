@@ -331,8 +331,10 @@ func (c *Client) redactString(s string) string {
 	return strings.ReplaceAll(s, c.key, redacted)
 }
 
-// stateStrings returns every string value in state, as is and JSON-escaped, longest first so a
-// string is redacted before any shorter one inside it.
+// stateStrings returns every string value in state, as is, JSON-escaped and escaped twice, longest
+// first so a string is redacted before any shorter one inside it. The twice-escaped forms are what an
+// error body echoes when a provider takes the state as JSON text inside a string, as OpenAI does: the
+// text escapes each value once, and the body that carries or quotes it escapes it again.
 func stateStrings(state any) []string {
 	data, err := json.Marshal(state)
 	if err != nil {
@@ -350,13 +352,19 @@ func stateStrings(state any) []string {
 			if v == "" {
 				return
 			}
-			out = append(out, v)
-			escaped := jsonEscaped(v)
-			for i, e := range escaped {
-				if e != v && (i == 0 || e != escaped[0]) {
-					out = append(out, e)
+			forms := []string{v}
+			add := func(candidates ...string) {
+				for _, c := range candidates {
+					if !slices.Contains(forms, c) {
+						forms = append(forms, c)
+					}
 				}
 			}
+			once := jsonEscaped(v)
+			add(once...)
+			// the JSON text of a state is written without HTML escaping, so that form is escaped again
+			add(jsonEscaped(once[noHTMLEscape])...)
+			out = append(out, forms...)
 		case []any:
 			for _, e := range v {
 				walk(e)
@@ -372,8 +380,11 @@ func stateStrings(state any) []string {
 	return out
 }
 
-// jsonEscaped returns v as a JSON string body with and without HTML escaping: Go escapes <, > and &,
-// while other servers echo them as is.
+// noHTMLEscape is the position in jsonEscaped's result of the form without HTML escaping.
+const noHTMLEscape = 1
+
+// jsonEscaped returns v as a JSON string body with and without (noHTMLEscape) HTML escaping: Go
+// escapes <, > and &, while other servers echo them as is.
 func jsonEscaped(v string) []string {
 	out := make([]string, 0, 2)
 	for _, html := range []bool{true, false} {

@@ -22,12 +22,17 @@ func openaiLimits(bool) (perQuestion, perRequest int) {
 	return openaiInputLimit, openaiInputLimit
 }
 
-// OpenAI's question types.
+// OpenAI's question types, and the type of an answer the model refused to give.
 const (
 	openaiTypeChoice    = "choice"
 	openaiTypePredicate = "predicate"
 	openaiTypeScore     = "score"
+	openaiTypeRefusal   = "refusal"
 )
+
+// openaiCodeTooLong is the error code of a 400 for a request over the context length. It is not
+// verified against a live call yet: this constant is the only place to fix.
+const openaiCodeTooLong = "context_length_exceeded"
 
 // openaiWire is OpenAI's Decisions API: POST /v1/decisions. The state travels as JSON text in the
 // input string (input_json is capped at 256 KiB), and the questions as an array named by id.
@@ -173,10 +178,178 @@ func jsonText(v any) (string, error) {
 // setHeaders adds nothing: the Decisions API has no provider-specific request headers.
 func (openaiWire) setHeaders(http.Header, bool) {}
 
-// errorType is not read yet.
-func (openaiWire) errorType([]byte) string { return "" }
+// errorType is error.code of an error body, with the too-long code normalized to the neutral
+// errorTypeTooLong. It is "" when the body is not JSON of that shape or the code is not a short one.
+func (openaiWire) errorType(data []byte) string {
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(data, &body) != nil || len(body.Error.Code) > maxErrorType {
+		return ""
+	}
+	if body.Error.Code == openaiCodeTooLong {
+		return errorTypeTooLong
+	}
+	return body.Error.Code
+}
 
-// decode is not implemented yet.
-func (openaiWire) decode([]byte, map[string]Question) (Response, error) {
-	return Response{}, fmt.Errorf("classifier: %w: %w", ErrInvalidAnswer, errors.New("openai response decoding is not implemented"))
+// openaiResponse is the wire form of a 200 response: one answer per question, named by its id.
+type openaiResponse struct {
+	Answers []*openaiAnswer `json:"answers"` // a nil entry is a null answer
+	Usage   json.RawMessage `json:"usage"`   // read permissively by inputTokens
+}
+
+// openaiAnswer is one answer. Which fields are set depends on its type: a choice has Choice, a
+// predicate has Predicate and a score has Score; a choice and a score have Probabilities and
+// Confidence. A refusal replaces all of them. Pointers and raw messages tell a missing value from
+// zero, and a value of the wrong kind from a missing one.
+type openaiAnswer struct {
+	Name          string              `json:"name"`
+	Type          string              `json:"type"`
+	Refusal       json.RawMessage     `json:"refusal"`
+	Choice        json.RawMessage     `json:"choice"`
+	Predicate     *openaiPredicate    `json:"predicate"`
+	Score         *float64            `json:"score"`
+	Probabilities []openaiProbability `json:"probabilities"`
+	Confidence    *float64            `json:"confidence"`
+}
+
+// openaiPredicate is a predicate's answer: the probability that it is true.
+type openaiPredicate struct {
+	Probability *float64 `json:"probability"`
+}
+
+// openaiProbability is the probability of one choice value or score label.
+type openaiProbability struct {
+	Value       *string  `json:"value"`
+	Probability *float64 `json:"probability"`
+}
+
+// decode parses a 200 body and validates one answer per question sent: it matches the answers to the
+// questions by name, converts each to the neutral form and holds it to the shared validators. A
+// question without an answer, or with a refusal, is ErrEmptyAnswer; anything else wrong is
+// ErrInvalidAnswer, including an answer for a question that was not sent or a name used twice.
+// Questions are checked in id order, so the same body always gives the same error.
+func (openaiWire) decode(data []byte, questions map[string]Question) (Response, error) {
+	var resp openaiResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return Response{}, fmt.Errorf("classifier: %w: %w", ErrInvalidAnswer, err)
+	}
+	// a name is never echoed back unless it is one of ours: it comes from the server
+	byName := make(map[string]*openaiAnswer, len(resp.Answers))
+	for i, a := range resp.Answers {
+		switch _, known := questions[openaiName(a)]; {
+		case a == nil:
+			return Response{}, fmt.Errorf("classifier: %w: answer %d is null", ErrInvalidAnswer, i)
+		case !known:
+			return Response{}, fmt.Errorf("classifier: %w: answer %d is for a question that was not sent", ErrInvalidAnswer, i)
+		case byName[a.Name] != nil:
+			return Response{}, fmt.Errorf("classifier: %w: %q is answered twice", ErrInvalidAnswer, a.Name)
+		}
+		byName[a.Name] = a
+	}
+	answers := make(map[string]Answer, len(questions))
+	for _, id := range slices.Sorted(maps.Keys(questions)) {
+		q := questions[id]
+		a := byName[id]
+		if a == nil {
+			return Response{}, fmt.Errorf("classifier: %w: %q", ErrEmptyAnswer, id)
+		}
+		if a.refused() {
+			return Response{}, fmt.Errorf("classifier: %w: %q: refused", ErrEmptyAnswer, id)
+		}
+		w, err := a.raw(q)
+		if err != nil {
+			return Response{}, fmt.Errorf("classifier: %w: %q: %w", ErrInvalidAnswer, id, err)
+		}
+		if empty(q, w) && (w.Type == "" || w.Type == q.Type) {
+			return Response{}, fmt.Errorf("classifier: %w: %q", ErrEmptyAnswer, id)
+		}
+		if answers[id], err = validate(q, w); err != nil {
+			return Response{}, fmt.Errorf("classifier: %w: %q: %w", ErrInvalidAnswer, id, err)
+		}
+	}
+	return Response{Answers: answers, InputTokens: inputTokens(resp.Usage)}, nil
+}
+
+// openaiName is the name of a, or "" for a null answer.
+func openaiName(a *openaiAnswer) string {
+	if a == nil {
+		return ""
+	}
+	return a.Name
+}
+
+// refused reports whether the model declined to answer: an answer of the refusal type, or one that
+// carries a refusal. A null or empty refusal is none. The refusal's text is never used, since it may
+// quote the prompt.
+func (a *openaiAnswer) refused() bool {
+	r := string(bytes.TrimSpace(a.Refusal))
+	return a.Type == openaiTypeRefusal || r != "" && r != "null" && r != `""`
+}
+
+// raw is the answer as the shared validators read it, for the question q: the fields q's type asks
+// for, with OpenAI's predicate named noul as in the request, and a score's legend rebuilt from q's
+// levels, since OpenAI labels them by position and returns no legend.
+func (a *openaiAnswer) raw(q Question) (rawAnswer, error) {
+	w := rawAnswer{Type: a.Type}
+	if a.Type == openaiTypePredicate {
+		w.Type = TypeNoul
+	}
+	var err error
+	switch q.Type {
+	case TypeChoice:
+		w.Confidence = a.Confidence
+		if w.Choice, err = choiceValue(a.Choice); err != nil {
+			return rawAnswer{}, err
+		}
+		if w.Probabilities, err = distribution(a.Probabilities); err != nil {
+			return rawAnswer{}, err
+		}
+	case TypeScore:
+		w.Score, w.Confidence = a.Score, a.Confidence
+		if w.Probabilities, err = distribution(a.Probabilities); err != nil {
+			return rawAnswer{}, err
+		}
+		w.Legend = make(map[string]string, len(q.Levels))
+		for i, level := range q.Levels {
+			w.Legend[strconv.Itoa(i)] = level
+		}
+	case TypeNoul:
+		if a.Predicate != nil {
+			w.Noul = a.Predicate.Probability
+		}
+	}
+	return w, nil
+}
+
+// choiceValue is the chosen value: a JSON string, or "" when it is missing or null. Any other kind,
+// such as a boolean, is an error.
+func choiceValue(raw json.RawMessage) (string, error) {
+	if r := bytes.TrimSpace(raw); len(r) == 0 || string(r) == "null" {
+		return "", nil
+	}
+	var choice string
+	if err := json.Unmarshal(raw, &choice); err != nil {
+		return "", errors.New("choice is not a string")
+	}
+	return choice, nil
+}
+
+// distribution turns the [{value, probability}] list into the neutral map. An entry missing either
+// field, or a value listed twice, is an error: the second would silently replace the first.
+func distribution(entries []openaiProbability) (map[string]float64, error) {
+	out := make(map[string]float64, len(entries))
+	for i, e := range entries {
+		if e.Value == nil || e.Probability == nil {
+			return nil, fmt.Errorf("probability %d needs a value and a probability", i)
+		}
+		if _, repeated := out[*e.Value]; repeated {
+			return nil, fmt.Errorf("probability %d repeats the value of an earlier one", i)
+		}
+		out[*e.Value] = *e.Probability
+	}
+	return out, nil
 }

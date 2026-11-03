@@ -217,14 +217,18 @@ Known limitation: `router.estimate`/`questionLen` size questions in the TypeSafe
 - Modify: `pkg/classifier/client.go` (`stateStrings`)
 - Modify: `pkg/classifier/client_test.go`
 
-- [ ] decode `answers[]` by `name` into neutral `Answer`s and run the shared validators
-- [ ] refusal and missing answers give `ErrEmptyAnswer`; a boolean choice, unknown name or bad distribution gives `ErrInvalidAnswer`; non-JSON gives `ErrInvalidAnswer`
-- [ ] `errorType` reads `error.code` and normalizes `context_length_exceeded` to `max_tokens_exceeded`; no extra headers
-- [ ] `Limits(ProviderOpenAI, _)` = 922000 per request and per question; `usage.input_tokens` read as for TypeSafe
-- [ ] `stateStrings` adds the doubly escaped form of every state string (with and without HTML escaping)
-- [ ] tests via `httptest`: valid choice, predicate and score responses; refusal; duplicate or extra names; too-long 400 matches `ErrTooLong`; 429 retry then 200; 401
-- [ ] redaction regression tests: an OpenAI error body echoing the encoded `input` with a quoted, multiline prompt containing `<`, `&` is fully redacted; the TypeSafe echo tests still pass
-- [ ] run tests - must pass before next task
+- [x] decode `answers[]` by `name` into neutral `Answer`s and run the shared validators
+- [x] refusal and missing answers give `ErrEmptyAnswer`; a boolean choice, unknown name or bad distribution gives `ErrInvalidAnswer`; non-JSON gives `ErrInvalidAnswer`
+- [x] `errorType` reads `error.code` and normalizes `context_length_exceeded` to `max_tokens_exceeded`; no extra headers
+- [x] `Limits(ProviderOpenAI, _)` = 922000 per request and per question; `usage.input_tokens` read as for TypeSafe
+- [x] `stateStrings` adds the doubly escaped form of every state string (with and without HTML escaping)
+- [x] tests via `httptest`: valid choice, predicate and score responses; refusal; duplicate or extra names; too-long 400 matches `ErrTooLong`; 429 retry then 200; 401
+- [x] redaction regression tests: an OpenAI error body echoing the encoded `input` with a quoted, multiline prompt containing `<`, `&` is fully redacted; the TypeSafe echo tests still pass
+  - ➕ `Limits(ProviderOpenAI, _)` = 922000 was already registered in Task 2 (`TestOpenAILimits`); this task only added the decode side
+  - ⚠️ the response shape is the plan's tables made literal, unverified against a live call: `answers[]` of `{name, type, refusal, choice, predicate: {probability}, score, probabilities: [{value, probability}], confidence}`. A `predicate` answer has type `predicate`; a refusal is a `refusal` field or type `refusal`. All of it lives in `openaiAnswer`, `raw` and `distribution` in `openai.go`
+  - ➕ a refusal's text and an unknown answer name are never put in the error (the server wrote them and they may quote the prompt); an unknown name is reported by its position. Questions are checked in id order, so an invalid body always names the same one
+  - ➕ `stateStrings` adds, for each string, the twice-escaped forms of its no-HTML once-escaped form (the text OpenAI is sent), with and without HTML escaping; the regression tests fail without that line
+- [x] run tests - must pass before next task
 
 ### Task 4: Config — `classifier_provider`, `[classifier.<provider>]` sections and embedded defaults
 
