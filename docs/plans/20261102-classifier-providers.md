@@ -90,9 +90,13 @@ bytes_per_token = 3
 url             = https://api.openai.com/v1/decisions
 api_key         =
 model           = gpt-6-luna
-request_tokens  = 30000
+request_tokens  = 250000
 bytes_per_token = 3
 ```
+
+Luna's default request budget is `250000`, leaving 22000 tokens below the 272K pricing threshold while using its larger context instead of TypeSafe's `30000` budget. [OpenAI documents a 1,050,000-token context window and 128,000 maximum output tokens](https://developers.openai.com/api/docs/models/gpt-6-luna); reserving that output allowance gives the adapter's conservative `922000` input limit. The budget covers the state plus all questions; smaller inputs use only what they need.
+
+For large requests, raise `[agrouter] timeout` (start with `120s` and tune). Inputs above 272K tokens cost 2x the input and cache rates and 1.5x the output rate for the full request; the `250000` default aims to stay below that pricing step. Users can explicitly raise the budget toward the adapter's input limit, less the router's 2000-token reserve. These pricing and context figures come from the model documentation linked above; live Decisions API behavior still needs the checks below.
 
 | Rule | Behavior |
 |---|---|
@@ -152,7 +156,7 @@ The same validators (`validateChoice`, `validateDistribution`, `validateScore`, 
 
 ⚠️ Unverified until a live call: OpenAI's too-long error code, whether `score` is the 0-based expected level, and how probabilities' `value` is indexed. All three are fixed in the codec only. See Post-Completion.
 
-Known limitation: `router.estimate`/`questionLen` size questions in the TypeSafe JSON shape. OpenAI's escaped JSON-in-string encoding is somewhat larger. That is absorbed by `bytes_per_token` and the 2000-token reserve, and OpenAI's limit is far above `request_tokens`.
+Known limitation: `router.estimate`/`questionLen` size questions in the TypeSafe JSON shape. OpenAI's escaped JSON-in-string encoding is somewhat larger. The `250000` default is well below the adapter's input limit, but the byte estimate does not guarantee that actual usage stays below the 272K pricing threshold. Compare estimated and reported tokens on large requests and tune `bytes_per_token` or lower `request_tokens` if needed; overflow still fails without re-splitting or resending.
 
 ## What Goes Where
 - **Implementation Steps** (`[ ]` checkboxes): code, tests, embedded defaults, README/CLAUDE.md
@@ -227,7 +231,7 @@ Known limitation: `router.estimate`/`questionLen` size questions in the TypeSafe
 - [ ] decode `[classifier.<p>]` per provider, layered per key as today; unknown `<p>` is an unknown section; `long_context` is an unknown key when `!classifier.SupportsLongContext(p)`
 - [ ] the flat `[classifier]` section is an error with the "use `[classifier.<provider>]` and `classifier_provider`" hint
 - [ ] after merge, set `cfg.Classifier` to the selected provider's section (with `Provider` set); validate the provider name and the selected section's required and sizing keys; validation messages name `[classifier.<provider>]`
-- [ ] embedded defaults in the same task: `classifier_provider = typesafe` with a key reference line under `[agrouter]`; `[classifier]` becomes `[classifier.typesafe]` (today's keys and comments) and `[classifier.openai]` (url, api_key, model, request_tokens, bytes_per_token; no long_context); the old unverified Luna example becomes notes on Luna's 922K input, 2x billing past 272K, and raising `timeout` for big `request_tokens`
+- [ ] embedded defaults in the same task: `classifier_provider = typesafe` with a key reference line under `[agrouter]`; `[classifier]` becomes `[classifier.typesafe]` (today's keys and comments, including `request_tokens = 30000`) and `[classifier.openai]` (`model = gpt-6-luna`, `request_tokens = 250000`, url, api_key, bytes_per_token; no long_context); the old unverified Luna example becomes notes on Luna's 1.05M context, conservative 922K input limit, the default budget's 22K margin below the 272K pricing threshold, 2x input/cache and 1.5x output billing past that threshold, explicitly raising the budget for larger requests, and raising `timeout` (start with `120s`) for big `request_tokens`
 - [ ] migrate the test configs in other packages listed above to `[classifier.typesafe]`
 - [ ] tests: default provider, switching providers across layers, a local override of one provider key, unknown provider value, unknown provider section, `long_context` under openai, the flat `[classifier]` hint, the unselected section with an empty `url` not failing, `ResolveAPIKey` on the selected section
 - [ ] keep the smoke test that the embedded config loads and validates; add one that it also validates with `classifier_provider = openai` (behavior, not values)
