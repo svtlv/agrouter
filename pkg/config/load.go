@@ -7,11 +7,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"gopkg.in/ini.v1"
+
+	"github.com/svtlv/agrouter/pkg/classifier"
 )
 
 // Environment variables read by the config package.
@@ -50,7 +53,8 @@ func DefaultPaths(workDir string) (global, local string, err error) {
 
 // ResolveAPIKey applies the key precedence and returns the key with the layer that decided it:
 // --api-key when given (an explicit empty value clears the key), then a non-empty AGROUTER_CLASSIFIER_API_KEY,
-// then [classifier] api_key from the merged config (local > global > embedded).
+// then api_key of the selected [classifier.<provider>] section from the merged config (local > global >
+// embedded); cfg is that section.
 func ResolveAPIKey(flagValue string, flagSet bool, envValue string, cfg Classifier) (key, source string) {
 	switch {
 	case flagSet:
@@ -148,7 +152,12 @@ func (m *merged) add(layer, path string, data []byte) error {
 
 func (m *merged) decode() (*Config, error) {
 	cfg := &Config{Efforts: map[string]Effort{}}
-	disabled := map[string]bool{} // CLI names with enabled = false
+	// typesafe until a layer sets classifier_provider
+	cfg.Agrouter.ClassifierProvider = classifier.ProviderTypeSafe
+	// every [classifier.<provider>] section present, keyed by provider
+	classifiers := map[string]Classifier{}
+	// CLI names with enabled = false
+	disabled := map[string]bool{}
 	for _, name := range m.order {
 		if cliName, sub, ok := cliSection(name); ok && sub == "" {
 			on, err := m.sections[name].enabled()
@@ -160,10 +169,14 @@ func (m *merged) decode() (*Config, error) {
 	}
 
 	for _, name := range m.order {
-		if err := m.decodeSection(cfg, m.sections[name], disabled); err != nil {
+		if err := m.decodeSection(cfg, m.sections[name], disabled, classifiers); err != nil {
 			return nil, err
 		}
 	}
+	// the selected section is only known once [agrouter] is decoded, wherever it sits in the layers. a
+	// provider without a section stays empty, so validation reports its missing keys.
+	cfg.Classifier = classifiers[cfg.Agrouter.ClassifierProvider]
+	cfg.Classifier.Provider = cfg.Agrouter.ClassifierProvider
 	for i := range cfg.CLIs {
 		avail, err := m.decodeAvailability(cfg.CLIs[i].Name)
 		if err != nil {
@@ -188,13 +201,25 @@ func (m *merged) decode() (*Config, error) {
 	return cfg, nil
 }
 
-// decodeSection decodes one section into cfg by its name prefix, skipping disabled sections.
-func (m *merged) decodeSection(cfg *Config, s *section, disabled map[string]bool) error {
+// decodeSection decodes one section into cfg by its name prefix, skipping disabled sections. A
+// [classifier.<provider>] section goes into classifiers, keyed by provider: which one cfg.Classifier
+// becomes is decided after every section is read.
+func (m *merged) decodeSection(cfg *Config, s *section, disabled map[string]bool, classifiers map[string]Classifier) error {
 	switch name := s.name; {
 	case name == "agrouter":
 		return s.decodeAgrouter(&cfg.Agrouter)
 	case name == "classifier":
-		return s.decodeClassifier(&cfg.Classifier)
+		return errors.New("[classifier]: removed; use [classifier.<provider>] and [agrouter] classifier_provider")
+	case strings.HasPrefix(name, "classifier."):
+		provider := strings.TrimPrefix(name, "classifier.")
+		if !slices.Contains(classifier.Providers(), provider) {
+			return fmt.Errorf("[%s]: unknown section (use %s)", name, providerSections())
+		}
+		c := Classifier{Provider: provider}
+		if err := s.decodeClassifier(&c); err != nil {
+			return err
+		}
+		classifiers[provider] = c
 	case strings.HasPrefix(name, "cli."):
 		cliName, sub, _ := cliSection(name)
 		if sub != "" {
@@ -253,6 +278,8 @@ func (s *section) decodeAgrouter(a *Agrouter) error {
 			a.ComplexityPolicy = e.value
 		case "log_dir":
 			a.LogDir = e.value
+		case "classifier_provider":
+			a.ClassifierProvider = e.value
 		default:
 			if hint, ok := removedAgrouterKeys[k]; ok {
 				return s.removedKey(k, hint)
@@ -266,6 +293,8 @@ func (s *section) decodeAgrouter(a *Agrouter) error {
 	return nil
 }
 
+// decodeClassifier decodes a [classifier.<provider>] section into c, whose Provider is set. Only a
+// provider with a long-context mode has the long_context key.
 func (s *section) decodeClassifier(c *Classifier) error {
 	for _, k := range s.keys {
 		e := s.values[k]
@@ -278,6 +307,9 @@ func (s *section) decodeClassifier(c *Classifier) error {
 		case "model":
 			c.Model = e.value
 		case "long_context":
+			if !classifier.SupportsLongContext(c.Provider) {
+				return s.unknownKey(k)
+			}
 			c.LongContext, err = strconv.ParseBool(e.value)
 		case "request_tokens":
 			c.RequestTokens, err = strconv.Atoi(e.value)
@@ -291,6 +323,15 @@ func (s *section) decodeClassifier(c *Classifier) error {
 		}
 	}
 	return nil
+}
+
+// providerSections lists the provider sections as the user writes them, for hints.
+func providerSections() string {
+	names := classifier.Providers()
+	for i, p := range names {
+		names[i] = "[classifier." + p + "]"
+	}
+	return strings.Join(names, " or ")
 }
 
 // cliSection splits a [cli.*] section name into the CLI name and the subsection after its first ".",

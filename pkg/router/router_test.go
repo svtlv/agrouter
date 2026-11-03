@@ -177,7 +177,7 @@ func TestNewQuestionOverBudget(t *testing.T) {
 	}{
 		{"agrouter", "routing_policy", long, []string{"request_tokens", "routing_policy question leaves", "for the state", "beside the anchor"}},
 		{"agrouter", "complexity_policy", long, []string{"request_tokens", "complexity_policy questions leaves", "for the doc state"}},
-		{"classifier", "request_tokens", "100", []string{"request_tokens 100 less", "for the state", "beside the anchor", "for the doc state"}},
+		{"classifier." + classifier.ProviderTypeSafe, "request_tokens", "100", []string{"request_tokens 100 less", "for the state", "beside the anchor", "for the doc state"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.key, func(t *testing.T) {

@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+
+	"github.com/svtlv/agrouter/pkg/classifier"
 )
 
 // EndOfOptions ends option parsing in the child. When prompt_args puts it before {prompt}, prompt text
@@ -52,23 +54,32 @@ func (a Agrouter) validate() []error {
 	if strings.TrimSpace(a.LogDir) == "" {
 		errs = append(errs, errors.New("[agrouter] log_dir: must not be empty"))
 	}
+	if !slices.Contains(classifier.Providers(), a.ClassifierProvider) {
+		errs = append(errs, fmt.Errorf("[agrouter] classifier_provider = %q: unknown provider (use %s)",
+			a.ClassifierProvider, strings.Join(classifier.Providers(), " or ")))
+	}
 	return errs
 }
 
-// validate checks the classifier's required keys and its sizing keys. The url value itself is the
-// user's: only an empty one is an error.
+// validate checks the selected provider's required keys and its sizing keys; messages name its
+// [classifier.<provider>] section. The url value itself is the user's: only an empty one is an error.
+// An unknown provider has no section to check: [agrouter] validation reports it.
 func (c Classifier) validate() []error {
+	if !slices.Contains(classifier.Providers(), c.Provider) {
+		return nil
+	}
+	section := "[classifier." + c.Provider + "]"
 	var errs []error
 	for _, k := range []struct{ key, value string }{{"url", c.URL}, {"model", c.Model}} {
 		if strings.TrimSpace(k.value) == "" {
-			errs = append(errs, fmt.Errorf("[classifier] %s: must not be empty", k.key))
+			errs = append(errs, fmt.Errorf("%s %s: must not be empty", section, k.key))
 		}
 	}
 	if c.RequestTokens <= 0 {
-		errs = append(errs, fmt.Errorf("[classifier] request_tokens = %d: must be positive", c.RequestTokens))
+		errs = append(errs, fmt.Errorf("%s request_tokens = %d: must be positive", section, c.RequestTokens))
 	}
 	if math.IsNaN(c.BytesPerToken) || math.IsInf(c.BytesPerToken, 0) || c.BytesPerToken <= 0 {
-		errs = append(errs, fmt.Errorf("[classifier] bytes_per_token = %v: must be a finite number greater than zero", c.BytesPerToken))
+		errs = append(errs, fmt.Errorf("%s bytes_per_token = %v: must be a finite number greater than zero", section, c.BytesPerToken))
 	}
 	return errs
 }

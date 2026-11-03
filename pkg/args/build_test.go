@@ -137,7 +137,7 @@ routing_policy  = Prefer the cheapest option.
 complexity_policy = Judge the whole codebase.
 log_dir           = logs
 
-[classifier]
+[classifier.typesafe]
 url               = https://classifier.example.test/v1
 model             = test-classifier
 request_tokens    = 20000

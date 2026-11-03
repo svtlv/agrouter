@@ -240,15 +240,19 @@ Known limitation: `router.estimate`/`questionLen` size questions in the TypeSafe
 - Modify: `pkg/config/config_test.go`, `pkg/config/validate_test.go`, `pkg/config/defaults/defaults_test.go`
 - Modify: test configs still using `[classifier]`: `pkg/catalog/catalog_test.go`, `pkg/args/build_test.go`, and any other hit of `grep -rn '\[classifier\]' --include='*_test.go' pkg cmd` (the reviewer named `pkg/readiness/readiness_test.go`)
 
-- [ ] add `Agrouter.ClassifierProvider` (default `typesafe` when no layer sets it) and `Classifier.Provider`
-- [ ] decode `[classifier.<p>]` per provider, layered per key as today; unknown `<p>` is an unknown section; `long_context` is an unknown key when `!classifier.SupportsLongContext(p)`
-- [ ] the flat `[classifier]` section is an error with the "use `[classifier.<provider>]` and `classifier_provider`" hint
-- [ ] after merge, set `cfg.Classifier` to the selected provider's section (with `Provider` set); validate the provider name and the selected section's required and sizing keys; validation messages name `[classifier.<provider>]`
-- [ ] embedded defaults in the same task: `classifier_provider = typesafe` with a key reference line under `[agrouter]`; `[classifier]` becomes `[classifier.typesafe]` (today's keys and comments, including `request_tokens = 30000`) and `[classifier.openai]` (`model = gpt-6-luna`, `request_tokens = 250000`, url, api_key, bytes_per_token; no long_context); the old unverified Luna example becomes notes on Luna's 1.05M context, conservative 922K input limit, the default budget's 22K margin below the 272K pricing threshold, 2x input/cache and 1.5x output billing past that threshold, explicitly raising the budget for larger requests, and raising `timeout` (start with `120s`) for big `request_tokens`
-- [ ] migrate the test configs in other packages listed above to `[classifier.typesafe]`
-- [ ] tests: default provider, switching providers across layers, a local override of one provider key, unknown provider value, unknown provider section, `long_context` under openai, the flat `[classifier]` hint, the unselected section with an empty `url` not failing, `ResolveAPIKey` on the selected section
-- [ ] keep the smoke test that the embedded config loads and validates; add one that it also validates with `classifier_provider = openai` (behavior, not values)
-- [ ] run `make test` - all packages must pass before next task
+- [x] add `Agrouter.ClassifierProvider` (default `typesafe` when no layer sets it) and `Classifier.Provider`
+- [x] decode `[classifier.<p>]` per provider, layered per key as today; unknown `<p>` is an unknown section; `long_context` is an unknown key when `!classifier.SupportsLongContext(p)`
+- [x] the flat `[classifier]` section is an error with the "use `[classifier.<provider>]` and `classifier_provider`" hint
+- [x] after merge, set `cfg.Classifier` to the selected provider's section (with `Provider` set); validate the provider name and the selected section's required and sizing keys; validation messages name `[classifier.<provider>]`
+- [x] embedded defaults in the same task: `classifier_provider = typesafe` with a key reference line under `[agrouter]`; `[classifier]` becomes `[classifier.typesafe]` (today's keys and comments, including `request_tokens = 30000`) and `[classifier.openai]` (`model = gpt-6-luna`, `request_tokens = 250000`, url, api_key, bytes_per_token; no long_context); the old unverified Luna example becomes notes on Luna's 1.05M context, conservative 922K input limit, the default budget's 22K margin below the 272K pricing threshold, 2x input/cache and 1.5x output billing past that threshold, explicitly raising the budget for larger requests, and raising `timeout` (start with `120s`) for big `request_tokens`
+- [x] migrate the test configs in other packages listed above to `[classifier.typesafe]`
+- [x] tests: default provider, switching providers across layers, a local override of one provider key, unknown provider value, unknown provider section, `long_context` under openai, the flat `[classifier]` hint, the unselected section with an empty `url` not failing, `ResolveAPIKey` on the selected section
+- [x] keep the smoke test that the embedded config loads and validates; add one that it also validates with `classifier_provider = openai` (behavior, not values)
+  - ➕ `decodeSection` collects each `[classifier.<p>]` into a map; `cfg.Classifier` is chosen after every section is read, so a section may sit before `[agrouter]` in a layer. A selected provider with no section stays empty and validation names its missing keys. `Classifier.validate` skips an unknown provider (the `[agrouter] classifier_provider` check reports it), so no noise from empty keys
+  - ➕ an explicit empty `classifier_provider =` is an error, not the default; the default applies only when no layer sets the key
+  - ➕ the `[classifier.openai]` budget text and Luna pricing notes live in `defaults/config`; the router's `checkLimits` message still says `[classifier]` until Task 5 (its tests assert that text)
+  - ➕ router test `TestNewQuestionOverBudget` built its section name with a format verb, so the grep missed it; it now uses `classifier.ProviderTypeSafe`
+- [x] run `make test` - all packages must pass before next task
 
 ### Task 5: Router limits, app wiring, help text and eval harness
 

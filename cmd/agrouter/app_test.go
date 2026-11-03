@@ -604,8 +604,8 @@ func TestApp_LongContext(t *testing.T) {
 		header string
 	}{
 		{name: "off by default"},
-		{name: "off when set to false", config: "[classifier]\nlong_context = false\n"},
-		{name: "on when set", config: "[classifier]\nlong_context = true\n", header: "true"},
+		{name: "off when set to false", config: "[classifier.typesafe]\nlong_context = false\n"},
+		{name: "on when set", config: "[classifier.typesafe]\nlong_context = true\n", header: "true"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -651,12 +651,12 @@ func TestApp_ClassifierAPIKeyPrecedence(t *testing.T) {
 			t.Setenv(config.EnvAPIKey, tc.env)
 			t.Setenv(envDebug, "1")
 			if tc.global != "" {
-				e.globalConfig("[classifier]\napi_key = " + tc.global + "\n")
+				e.globalConfig("[classifier.typesafe]\napi_key = " + tc.global + "\n")
 			}
 			if tc.local != "" {
 				require.NoError(t, os.MkdirAll(filepath.Join(e.workDir, ".agrouter"), 0o750))
 				require.NoError(t, os.WriteFile(filepath.Join(e.workDir, ".agrouter", "config"),
-					[]byte("[classifier]\napi_key = "+tc.local+"\n"), 0o600))
+					[]byte("[classifier.typesafe]\napi_key = "+tc.local+"\n"), 0o600))
 			}
 			var stdout, stderr bytes.Buffer
 			a := e.app(nil, &stdout, &stderr, runner.Runner{})
@@ -680,7 +680,7 @@ func TestApp_ClassifierAPIKeyPrecedence(t *testing.T) {
 func TestApp_ClassifierURL(t *testing.T) {
 	e := newEnv(t)
 	e.jev.pick = "claude-sonnet-5-5@low"
-	e.globalConfig("[classifier]\nurl = https://classifier.example.test/v1/route\n")
+	e.globalConfig("[classifier.typesafe]\nurl = https://classifier.example.test/v1/route\n")
 	var stdout, stderr bytes.Buffer
 	a := e.app(nil, &stdout, &stderr, runner.Runner{})
 	var urls []string
@@ -1709,8 +1709,8 @@ func TestApp_MirrorLog(t *testing.T) {
 			argv   []string
 		}{
 			{"usage error", "", []string{"--no-such-flag"}},
-			{"invalid config", "\n[classifier]\nrequest_tokens = 0\n", []string{"fix it"}},
-			{"request_tokens over the provider limit", "\n[classifier]\nrequest_tokens = 40000\n", []string{"fix it"}},
+			{"invalid config", "\n[classifier.typesafe]\nrequest_tokens = 0\n", []string{"fix it"}},
+			{"request_tokens over the provider limit", "\n[classifier.typesafe]\nrequest_tokens = 40000\n", []string{"fix it"}},
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {

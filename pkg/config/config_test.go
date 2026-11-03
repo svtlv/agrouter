@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/svtlv/agrouter/pkg/classifier"
 )
 
 const baseConfig = `
@@ -18,13 +20,20 @@ routing_policy    = Prefer the cheapest option; compare ` + "`models`" + ` "well
 complexity_policy = Judge the whole codebase.
 log_dir           = .agrouter/logs
 
-[classifier]
+[classifier.typesafe]
 url             = https://classifier.example.test/v1
 api_key         =
 model           = test-classifier
 long_context    = false
 request_tokens  = 20000
 bytes_per_token = 3
+
+[classifier.openai]
+url             = https://openai.example.test/v1/decisions
+api_key         =
+model           = test-openai
+request_tokens  = 200000
+bytes_per_token = 2.5
 
 [cli.alpha]
 command               = alpha
@@ -107,8 +116,11 @@ func TestLoad_Embedded(t *testing.T) {
 		RoutingPolicy:    "Prefer the cheapest option; compare `models` \"well\".",
 		ComplexityPolicy: "Judge the whole codebase.",
 		LogDir:           ".agrouter/logs",
+		// baseConfig has no classifier_provider: the default applies
+		ClassifierProvider: classifier.ProviderTypeSafe,
 	}, cfg.Agrouter)
 	assert.Equal(t, Classifier{
+		Provider:      classifier.ProviderTypeSafe,
 		URL:           "https://classifier.example.test/v1",
 		APIKeySource:  LayerEmbedded,
 		Model:         "test-classifier",
@@ -162,7 +174,7 @@ func TestLoad_Layering(t *testing.T) {
 timeout = 20s
 routing_policy = Prefer the strongest option.
 
-[classifier]
+[classifier.typesafe]
 api_key = global-key
 url = https://global.example.test/v1
 
@@ -177,7 +189,7 @@ description = Global description.
 timeout = 30s
 complexity_policy = Judge only the architecture.
 
-[classifier]
+[classifier.typesafe]
 model = local-classifier
 
 [cli.alpha]
@@ -235,7 +247,7 @@ func TestLoad_ClassifierLayering(t *testing.T) {
 		},
 		{
 			name: "global overrides the embedded layer and the rest is inherited",
-			global: "[classifier]\nurl = https://global.example.test/v1\nmodel = global-model\n" +
+			global: "[classifier.typesafe]\nurl = https://global.example.test/v1\nmodel = global-model\n" +
 				"long_context = true\nrequest_tokens = 120000\n",
 			want: func(t *testing.T, cfg *Config) {
 				c := cfg.Classifier
@@ -250,9 +262,9 @@ func TestLoad_ClassifierLayering(t *testing.T) {
 		},
 		{
 			name: "local overrides global per key",
-			global: "[classifier]\nurl = https://global.example.test/v1\napi_key = g\nmodel = global-model\n" +
+			global: "[classifier.typesafe]\nurl = https://global.example.test/v1\napi_key = g\nmodel = global-model\n" +
 				"long_context = true\nrequest_tokens = 120000\nbytes_per_token = 2.5\n",
-			local: "[classifier]\nurl = https://local.example.test/v1\napi_key = l\nrequest_tokens = 90000\nlong_context = false\n" +
+			local: "[classifier.typesafe]\nurl = https://local.example.test/v1\napi_key = l\nrequest_tokens = 90000\nlong_context = false\n" +
 				"[agrouter]\nlog_dir = logs/agrouter\n",
 			want: func(t *testing.T, cfg *Config) {
 				c := cfg.Classifier
@@ -268,17 +280,17 @@ func TestLoad_ClassifierLayering(t *testing.T) {
 		},
 		{
 			name:  "accepted boolean spellings",
-			local: "[classifier]\nlong_context = 1\n",
+			local: "[classifier.typesafe]\nlong_context = 1\n",
 			want:  func(t *testing.T, cfg *Config) { assert.True(t, cfg.Classifier.LongContext) },
 		},
 		{
 			name:  "fractional ratio",
-			local: "[classifier]\nbytes_per_token = 2.75\n",
+			local: "[classifier.typesafe]\nbytes_per_token = 2.75\n",
 			want:  func(t *testing.T, cfg *Config) { assert.InDelta(t, 2.75, cfg.Classifier.BytesPerToken, 0) },
 		},
 		{
 			name:  "any url value is kept as written",
-			local: "[classifier]\nurl = not a url\n",
+			local: "[classifier.typesafe]\nurl = not a url\n",
 			want:  func(t *testing.T, cfg *Config) { assert.Equal(t, "not a url", cfg.Classifier.URL) },
 		},
 	}
@@ -323,12 +335,12 @@ func TestLoad_ClassifierKeyErrors(t *testing.T) {
 		local string
 		want  string
 	}{
-		{name: "bad long_context", local: "[classifier]\nlong_context = sometimes\n", want: `[classifier] long_context = "sometimes" (local `},
-		{name: "request_tokens not a number", local: "[classifier]\nrequest_tokens = many\n", want: `[classifier] request_tokens = "many" (local `},
-		{name: "request_tokens fractional", local: "[classifier]\nrequest_tokens = 1.5\n", want: `[classifier] request_tokens = "1.5" (local `},
-		{name: "request_tokens with unit", local: "[classifier]\nrequest_tokens = 30k\n", want: `[classifier] request_tokens = "30k" (local `},
-		{name: "bytes_per_token not a number", local: "[classifier]\nbytes_per_token = three\n", want: `[classifier] bytes_per_token = "three" (local `},
-		{name: "bytes_per_token out of range", local: "[classifier]\nbytes_per_token = 1e999\n", want: `[classifier] bytes_per_token = "1e999" (local `},
+		{name: "bad long_context", local: "[classifier.typesafe]\nlong_context = sometimes\n", want: `[classifier.typesafe] long_context = "sometimes" (local `},
+		{name: "request_tokens not a number", local: "[classifier.typesafe]\nrequest_tokens = many\n", want: `[classifier.typesafe] request_tokens = "many" (local `},
+		{name: "request_tokens fractional", local: "[classifier.typesafe]\nrequest_tokens = 1.5\n", want: `[classifier.typesafe] request_tokens = "1.5" (local `},
+		{name: "request_tokens with unit", local: "[classifier.typesafe]\nrequest_tokens = 30k\n", want: `[classifier.typesafe] request_tokens = "30k" (local `},
+		{name: "bytes_per_token not a number", local: "[classifier.typesafe]\nbytes_per_token = three\n", want: `[classifier.typesafe] bytes_per_token = "three" (local `},
+		{name: "bytes_per_token out of range", local: "[classifier.typesafe]\nbytes_per_token = 1e999\n", want: `[classifier.typesafe] bytes_per_token = "1e999" (local `},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -408,7 +420,7 @@ func TestLoad_Errors(t *testing.T) {
 		{name: "bad enabled", local: "[model.alpha-big]\nenabled = nope\n", want: "[model.alpha-big] enabled"},
 		{name: "bad cli enabled", local: "[cli.beta]\nenabled = maybe\n", want: "[cli.beta] enabled"},
 		{name: "unknown agrouter key", local: "[agrouter]\ntimeuot = 1s\n", want: "[agrouter] timeuot"},
-		{name: "unknown classifier key", local: "[classifier]\nendpoint = x\n", want: "[classifier] endpoint (local "},
+		{name: "unknown classifier key", local: "[classifier.typesafe]\nendpoint = x\n", want: "[classifier.typesafe] endpoint (local "},
 		{name: "unknown cli key", local: "[cli.alpha]\ncmd = x\n", want: "[cli.alpha] cmd"},
 		{name: "unknown model key", local: "[model.alpha-big]\neffort = low\n", want: "[model.alpha-big] effort"},
 		{name: "unknown effort key", local: "[effort.alpha.low]\nname = x\n", want: "[effort.alpha.low] name"},
@@ -478,7 +490,7 @@ func TestLoad_RemovedNativeMetadata(t *testing.T) {
 }
 
 func TestLoad_UnknownKeyHidesValue(t *testing.T) {
-	for _, section := range []string{"agrouter", "classifier"} {
+	for _, section := range []string{"agrouter", "classifier.typesafe", "classifier.openai"} {
 		t.Run(section, func(t *testing.T) {
 			_, err := load(t, "", "["+section+"]\napikey = sk-secret\n")
 			require.Error(t, err)
@@ -489,7 +501,7 @@ func TestLoad_UnknownKeyHidesValue(t *testing.T) {
 	}
 }
 
-// the keys that moved to [classifier] are ordinary unknown keys under [agrouter], their values left out
+// the keys that moved to [classifier.typesafe] are ordinary unknown keys under [agrouter], their values left out
 func TestLoad_MovedKeysUnknownInAgrouter(t *testing.T) {
 	for _, key := range []string{"api_key", "jev_model", "long_context", "request_tokens", "bytes_per_token"} {
 		t.Run(key, func(t *testing.T) {
@@ -547,7 +559,7 @@ func TestLoad_ErrorNamesEmbeddedLayer(t *testing.T) {
 }
 
 func TestLoad_InlineCommentKeptInValue(t *testing.T) {
-	cfg, err := load(t, "", "[classifier]\nmodel = model-1 ; pinned\n")
+	cfg, err := load(t, "", "[classifier.typesafe]\nmodel = model-1 ; pinned\n")
 	require.NoError(t, err)
 	assert.Equal(t, "model-1 ; pinned", cfg.Classifier.Model, "IgnoreInlineComment: comments must be on their own lines")
 }
@@ -584,7 +596,7 @@ func TestDefaultPaths(t *testing.T) {
 	t.Run("loads from config dir", func(t *testing.T) {
 		dir := t.TempDir()
 		t.Setenv(EnvConfigDir, dir)
-		writeFile(t, dir, "config", "[classifier]\napi_key = from-dir\n")
+		writeFile(t, dir, "config", "[classifier.typesafe]\napi_key = from-dir\n")
 		global, local, err := DefaultPaths(t.TempDir())
 		require.NoError(t, err)
 		cfg, err := Load(Sources{Embedded: []byte(baseConfig), GlobalPath: global, LocalPath: local})
@@ -617,10 +629,10 @@ func TestResolveAPIKey(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var global, local string
 			if tc.global != "" {
-				global = "[classifier]\napi_key = " + tc.global + "\n"
+				global = "[classifier.typesafe]\napi_key = " + tc.global + "\n"
 			}
 			if tc.local != "" {
-				local = "[classifier]\napi_key = " + tc.local + "\n"
+				local = "[classifier.typesafe]\napi_key = " + tc.local + "\n"
 			}
 			cfg, err := load(t, global, local)
 			require.NoError(t, err)
