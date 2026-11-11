@@ -87,7 +87,7 @@ func (a *app) execSelection(cli config.CLI, req *args.Request, d routed) (select
 		}
 	}
 
-	model := effective(s.Model, req.Model, pre.report.Defaults.Model, "")
+	model := effective(s.Model, req.Native[cli.Name].Model, pre.report.Defaults.Model, "")
 	var effort *effectiveValueJSON
 	if !d.NoEffort {
 		// the probe's default effort belongs to the child's default model, not to one agrouter set
@@ -95,7 +95,7 @@ func (a *app) execSelection(cli config.CLI, req *args.Request, d routed) (select
 		if def != nil && s.Model != nil && !pre.ev.SameModel(*s.Model, deref(pre.report.Defaults.Model)) {
 			def, why = nil, defaultOtherModel
 		}
-		effort = effective(s.Effort, req.Effort, def, why)
+		effort = effective(s.Effort, req.Native[cli.Name].Effort, def, why)
 	}
 	if s.Model == nil || (s.Effort == nil && !d.NoEffort) {
 		s.Effective = &effectiveJSON{Model: model, Effort: effort}

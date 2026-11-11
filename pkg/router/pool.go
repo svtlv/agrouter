@@ -53,7 +53,7 @@ type slot = piece[prompt.Chunk, routeAnswer]
 // the winning group's index. Any chunk failure means the classifier cannot decide; a rejected chunk is never resent.
 func (r *Router) pooled(ctx context.Context, el *Eligibility, lv level, gs []group, split *prompt.Split) (int, *Pooled, error) {
 	questions := map[string]classifier.Question{
-		lv.name:           stageQuestion(r.cfg, lv, chunkGuide, gs, el.effort),
+		lv.name:           stageQuestion(r.cfg, lv, chunkGuide, gs, el.efforts),
 		questionRelevance: relevanceQuestion(),
 	}
 	names := groupLabels(gs)

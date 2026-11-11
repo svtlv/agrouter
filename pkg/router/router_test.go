@@ -77,7 +77,7 @@ func TestRouteSingleOptionSkipsClassifier(t *testing.T) {
 	client := &mocks.ClassifierMock{} // Ask panics if called
 	r := newRouter(t, cfg, cat, client)
 
-	req := &args.Request{Model: "claude-opus-5-5", Effort: "high"}
+	req := &args.Request{Native: natOf("claude", "claude-opus-5-5", "high")}
 	el := Eligible(cat, req)
 	require.Len(t, el.Options, 1)
 
@@ -93,7 +93,7 @@ func TestRouteSingleOptionPassthrough(t *testing.T) {
 	cfg, cat := embedded(t)
 	r := newRouter(t, cfg, cat, &mocks.ClassifierMock{})
 
-	req := &args.Request{CLI: "codex", Model: "gpt-9", Effort: "turbo"}
+	req := &args.Request{CLI: "codex", Native: natAll("gpt-9", "turbo")}
 	el := Eligible(cat, req)
 	d, err := r.Route(context.Background(), el, req, captured("x"))
 	require.NoError(t, err)
@@ -142,11 +142,11 @@ func TestRouteGoldenRequest(t *testing.T) {
 	}{
 		{name: "stage_cli", req: &args.Request{}, choice: "fast", stage: LevelCLI},
 		{name: "stage_model", req: &args.Request{CLI: "alpha"}, choice: "strong@high", stage: LevelModel},
-		{name: "stage_effort", req: &args.Request{Model: "strong-model"},
+		{name: "stage_effort", req: &args.Request{Native: natOf("alpha", "strong-model", "")},
 			choice: "strong@high", stage: LevelEffort},
-		{name: "effort_passthrough", req: &args.Request{CLI: "alpha", Effort: "turbo"},
+		{name: "effort_passthrough", req: &args.Request{CLI: "alpha", Native: natAll("", "turbo")},
 			choice: "fast", stage: LevelModel},
-		{name: "model_passthrough", req: &args.Request{Model: "unknown-model"},
+		{name: "model_passthrough", req: &args.Request{Native: natAll("unknown-model", "")},
 			choice: "beta", stage: LevelCLI},
 	}
 	for _, tc := range tests {
@@ -340,14 +340,14 @@ func TestRouteCannotDecide(t *testing.T) {
 		{name: "cli known by --cli", req: &args.Request{CLI: "claude"},
 			want: Decision{CLI: "claude", Pinned: true}, argv: []string{"claude", "-p"}},
 		{name: "cli known by --model",
-			req:  &args.Request{Model: "opus"},
+			req:  &args.Request{Native: natOf("claude", "opus", "")},
 			want: Decision{CLI: "claude", Model: "claude-opus-5-5"},
 			argv: []string{"claude", "-p", "--model", "claude-opus-5-5"}},
-		{name: "cli known as the only one with the effort", req: &args.Request{Effort: "ultra"},
+		{name: "cli known as the only one with the effort", req: &args.Request{Native: natOf("codex", "", "ultra")},
 			want: Decision{CLI: "codex", Effort: "ultra"},
 			argv: []string{"codex", "exec", "-c", `model_reasoning_effort="ultra"`}},
 		{name: "--cli=claude --effort high keeps the effort",
-			req:  &args.Request{CLI: "claude", Effort: "high"},
+			req:  &args.Request{CLI: "claude", Native: natAll("", "high")},
 			want: Decision{CLI: "claude", Effort: "high", Pinned: true},
 			argv: []string{"claude", "-p", "--effort", "high"}},
 	}
@@ -519,7 +519,7 @@ func TestRouteKeepsAskedModelOnLaterFailure(t *testing.T) {
 		wantModel string
 	}{
 		{name: "asked model kept", req: &args.Request{CLI: "alpha"}, wantModel: "strong-model"},
-		{name: "caller's model kept", req: &args.Request{Model: "strong-model"}, wantModel: "strong-model"},
+		{name: "caller's model kept", req: &args.Request{Native: natOf("alpha", "strong-model", "")}, wantModel: "strong-model"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

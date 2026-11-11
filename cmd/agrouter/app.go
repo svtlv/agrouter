@@ -166,6 +166,7 @@ func (a *app) run(argv []string) int {
 		}
 	}
 
+	req.Native = nativeFromFlags(cfg, cat, req, cmd.model, cmd.effort)
 	d, err := a.route(cfg, cat, rt, req)
 	if err != nil {
 		// the stages completed before the classifier failed, if any
@@ -276,6 +277,34 @@ func (a *app) setup(req *args.Request) (*config.Config, *catalog.Catalog, *route
 		return nil, nil, nil, err
 	}
 	return cfg, cat, rt, nil
+}
+
+// nativeFromFlags gives the --model and --effort values to the CLIs they constrain: the model's own CLI when
+// it is in the catalog, otherwise every CLI (the pinned one only, with --cli or exec); an effort alone goes
+// to the CLIs having an option with it, or to every one when none has. Exec's native detection replaces it.
+func nativeFromFlags(cfg *config.Config, cat *catalog.Catalog, req *args.Request, model, effort string) map[string]args.Selection {
+	if model == "" && effort == "" {
+		return nil
+	}
+	owner := ""
+	if m, ok := cat.LookupModel(model); ok && model != "" {
+		owner = m.CLI
+	}
+	native := map[string]args.Selection{}
+	for _, cli := range cfg.CLIs {
+		if req.CLI != "" && cli.Name != req.CLI {
+			continue
+		}
+		if req.CLI == "" && owner != "" && cli.Name != owner {
+			continue
+		}
+		if req.CLI == "" && model == "" && len(catalog.ByEffort(catalog.ByCLI(cat.Options, cli.Name), effort)) == 0 &&
+			len(catalog.ByEffort(cat.Options, effort)) > 0 {
+			continue
+		}
+		native[cli.Name] = args.Selection{Model: model, Effort: effort}
+	}
+	return native
 }
 
 // routed is the decision together with the captured prompt, whose stdin the child replays.

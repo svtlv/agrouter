@@ -61,6 +61,9 @@ type command struct {
 	help    string // the help text when --help was given
 	version bool
 	verbose bool
+	// model and effort are the --model/-m and --effort values until exec's native detection replaces
+	// the options; nativeFromFlags turns them into the request's native selections meanwhile.
+	model, effort string
 }
 
 // parseArgs parses agrouter's command line. The error is a usage error, for one "agrouter:" line
@@ -110,7 +113,7 @@ func parseArgs(argv []string) (command, error) {
 	if seen.cli && req.Mode != args.ModeExec {
 		req.CLI = seen.cliValue
 	}
-	return command{req: req, verbose: opts.Verbose}, nil
+	return command{req: req, verbose: opts.Verbose, model: seen.model, effort: seen.effort}, nil
 }
 
 // flagSet is agrouter's options. The func fields set the request as go-flags parses them.
@@ -136,6 +139,8 @@ type flagCounts struct {
 	cliValue   string // the last --cli value
 	prompt     int    // -p, --prompt and --print together
 	promptFile int
+	model      string // the last --model/-m value
+	effort     string // the last --effort value
 }
 
 // newFlagSet binds the options to req, recording in seen what parseArgs checks afterwards.
@@ -156,8 +161,8 @@ func newFlagSet(req *args.Request, seen *flagCounts) *flagSet {
 		APIKey: func(v string) {
 			req.APIKey = args.Optional{Value: unescape(v), Set: true}
 		},
-		Model:  func(v string) { req.Model = unescape(v) },
-		Effort: func(v string) { req.Effort = unescape(v) },
+		Model:  func(v string) { seen.model = unescape(v) },
+		Effort: func(v string) { seen.effort = unescape(v) },
 	}
 }
 

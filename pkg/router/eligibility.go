@@ -1,13 +1,15 @@
 // Package router decides which catalog option runs a prompt: eligibility from the caller's
-// arguments, then the classifier.
+// --cli and native model and effort, then the classifier.
 package router
 
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/svtlv/agrouter/pkg/args"
 	"github.com/svtlv/agrouter/pkg/catalog"
+	"github.com/svtlv/agrouter/pkg/config"
 )
 
 // Drop is a CLI eligibility removed, and why, for debug output.
@@ -22,20 +24,21 @@ type Eligibility struct {
 	Options []catalog.Option
 	// Pinned is true when a valid --cli or the exec CLI fixed the CLI.
 	Pinned bool
-	// ModelPassthrough: the caller's --model was not among the remaining options, so every option
-	// carries it unresolved (or resolved to its catalog name) with one option per CLI.
+	// ModelPassthrough: for some CLI the native model was not among its remaining options, so that
+	// CLI has one option carrying it unresolved (or resolved to its catalog name).
 	ModelPassthrough bool
-	// EffortPassthrough: no remaining option has the caller's --effort, so the options carry no
-	// effort and the caller's value is emitted as given.
+	// EffortPassthrough: for some CLI no remaining option has the native effort, so that CLI's options
+	// carry no effort and the native value is emitted as given.
 	EffortPassthrough bool
 	Dropped           []Drop
 	// Warnings are the stderr lines for routing arguments left out (an unusable --cli).
 	Warnings []string
-	effort   string
+	native   map[string]args.Selection
+	efforts  map[string]string // cli -> the native effort its options pass through
 }
 
-// EffortFor returns the effort to emit for o: its own, or the caller's passed-through value.
-func (e *Eligibility) EffortFor(o catalog.Option) string { return optionEffort(o, e.effort) }
+// EffortFor returns the effort to emit for o: its own, or the native value passed through for its CLI.
+func (e *Eligibility) EffortFor(o catalog.Option) string { return optionEffort(o, e.efforts[o.CLI]) }
 
 // optionEffort returns o's own effort, or passed when o has none.
 func optionEffort(o catalog.Option, passed string) string {
@@ -50,14 +53,13 @@ func (e *Eligibility) CLIs() []string {
 	return catalog.CLIs(e.Options)
 }
 
-// Eligible applies the filters in order: --cli, --model, then --effort. No step ever empties the
-// list: an unusable --cli is skipped with a warning, and a --model or --effort nothing satisfies is
-// passed through.
+// Eligible applies the filters in order: --cli, the CLIs the native selection implies, then each
+// remaining CLI's native model and effort. No step ever empties the list: an unusable --cli is skipped
+// with a warning, and a native model or effort nothing satisfies is passed through.
 func Eligible(cat *catalog.Catalog, req *args.Request) *Eligibility {
-	e := &Eligibility{Options: slices.Clone(cat.Options), effort: req.Effort}
+	e := &Eligibility{Options: slices.Clone(cat.Options), native: req.Native, efforts: map[string]string{}}
 	e.filterCLI(req.CLI)
-	e.filterModel(cat, req.Model)
-	e.filterEffort(req.Effort)
+	e.filterNative(cat)
 	return e
 }
 
@@ -75,49 +77,124 @@ func (e *Eligibility) filterCLI(name string) {
 	e.Options, e.Pinned = kept, true
 }
 
-func (e *Eligibility) filterModel(cat *catalog.Catalog, value string) {
-	if value == "" {
+// filterNative keeps the CLIs whose templates detected a native model or effort, then narrows each
+// one's options to its own selection. A native model in a CLI's own catalog wins over an effort-only
+// detection of another CLI, which is dropped. Without any detection it changes nothing.
+func (e *Eligibility) filterNative(cat *catalog.Catalog) {
+	var detected []string
+	for _, cli := range catalog.CLIs(e.Options) {
+		if sel := e.native[cli]; sel.Model != "" || sel.Effort != "" {
+			detected = append(detected, cli)
+		}
+	}
+	if len(detected) == 0 {
 		return
 	}
-	name := value
-	if m, ok := cat.LookupModel(value); ok {
-		if kept := catalog.ByModel(e.Options, m.Section); len(kept) > 0 {
-			e.drop(kept, "--model "+value)
-			e.Options = kept
-			return
+	reason := nativeReason(e.native, detected)
+	owner := ""
+	for _, cli := range detected {
+		if _, ok := ownModel(cat, catalog.ByCLI(e.Options, cli), e.native[cli].Model); ok {
+			owner = cli
+			break
 		}
-		name = m.Name
 	}
-	// outside the catalog, or a catalog model of a CLI already dropped: one option per remaining CLI
-	// with the model fixed, for that CLI to validate
-	var opts []catalog.Option
+	dropReason := map[string]string{}
+	var kept []string
 	for _, cli := range catalog.CLIs(e.Options) {
-		opts = append(opts, catalog.Option{ID: cli, CLI: cli, Name: name})
+		switch {
+		case !slices.Contains(detected, cli):
+			dropReason[cli] = reason
+		case owner != "" && e.native[cli].Model == "":
+			dropReason[cli] = "native model " + e.native[owner].Model
+		default:
+			kept = append(kept, cli)
+		}
 	}
-	e.Options, e.ModelPassthrough = opts, true
+	var opts []catalog.Option
+	for _, cli := range kept {
+		opts = append(opts, e.narrow(cat, cli, e.native[cli])...)
+	}
+	for _, cli := range catalog.CLIs(e.Options) {
+		if r, ok := dropReason[cli]; ok {
+			e.Dropped = append(e.Dropped, Drop{CLI: cli, Reason: r})
+		}
+	}
+	e.Options = opts
 }
 
-func (e *Eligibility) filterEffort(effort string) {
-	if effort == "" {
-		return
+// ownModel resolves value against the catalog and reports the model when it is one of opts' models.
+func ownModel(cat *catalog.Catalog, opts []catalog.Option, value string) (config.Model, bool) {
+	if value == "" {
+		return config.Model{}, false
 	}
-	if e.ModelPassthrough {
-		e.EffortPassthrough = true
-		return
+	m, ok := cat.LookupModel(value)
+	if !ok || len(catalog.ByModel(opts, m.Section)) == 0 {
+		return config.Model{}, false
 	}
-	if kept := catalog.ByEffort(e.Options, effort); len(kept) > 0 {
-		e.drop(kept, "--effort "+effort)
-		e.Options = kept
-		return
+	return m, true
+}
+
+// nativeReason names the native selection of the detected CLIs, for the CLIs it left out.
+func nativeReason(native map[string]args.Selection, detected []string) string {
+	if len(detected) > 1 {
+		return "native selection of " + strings.Join(detected, ", ")
 	}
-	// nothing has it: keep each model once, without an effort, and pass the value through
-	var opts []catalog.Option
-	for _, o := range e.Options {
-		if !slices.ContainsFunc(opts, func(k catalog.Option) bool { return k.Section == o.Section }) {
-			opts = append(opts, catalog.Option{ID: o.Section, CLI: o.CLI, Section: o.Section, Name: o.Name})
+	sel := native[detected[0]]
+	var parts []string
+	if sel.Model != "" {
+		parts = append(parts, "model "+sel.Model)
+	}
+	if sel.Effort != "" {
+		parts = append(parts, "effort "+sel.Effort)
+	}
+	return "native " + strings.Join(parts, ", ")
+}
+
+// narrow returns cli's options under its native selection: the model's options (or one option
+// carrying a model outside the catalog, for the CLI to validate), then those with the effort (or each
+// model once without an effort, which is passed through as given).
+func (e *Eligibility) narrow(cat *catalog.Catalog, cli string, sel args.Selection) []catalog.Option {
+	opts := catalog.ByCLI(e.Options, cli)
+	modelPassed := false
+	if sel.Model != "" {
+		if m, ok := ownModel(cat, opts, sel.Model); ok {
+			opts = catalog.ByModel(opts, m.Section)
+		} else {
+			// outside the catalog, or a catalog model of another CLI
+			name := sel.Model
+			if m, ok := cat.LookupModel(sel.Model); ok {
+				name = m.Name
+			}
+			opts = []catalog.Option{{ID: cli, CLI: cli, Name: name}}
+			modelPassed = true
+			e.ModelPassthrough = true
 		}
 	}
-	e.Options, e.EffortPassthrough = opts, true
+	if sel.Effort == "" {
+		return opts
+	}
+	if modelPassed {
+		e.passEffort(cli, sel.Effort)
+		return opts
+	}
+	if kept := catalog.ByEffort(opts, sel.Effort); len(kept) > 0 {
+		return kept
+	}
+	// nothing has it: keep each model once, without an effort, and pass the value through
+	var once []catalog.Option
+	for _, o := range opts {
+		if !slices.ContainsFunc(once, func(k catalog.Option) bool { return k.Section == o.Section }) {
+			once = append(once, catalog.Option{ID: o.Section, CLI: o.CLI, Section: o.Section, Name: o.Name})
+		}
+	}
+	e.passEffort(cli, sel.Effort)
+	return once
+}
+
+// passEffort makes cli's options carry effort as given.
+func (e *Eligibility) passEffort(cli, effort string) {
+	e.efforts[cli] = effort
+	e.EffortPassthrough = true
 }
 
 // Exclude removes the options with the given ids, such as those the exec CLI cannot run now. It

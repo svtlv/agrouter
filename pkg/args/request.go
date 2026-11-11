@@ -22,16 +22,15 @@ type Optional struct {
 // Request is one parsed agrouter call.
 type Request struct {
 	Mode       Mode
-	CLI        string   // the exec CLI, or --cli in decision mode; empty routes across every CLI
-	APIKey     Optional // --api-key; Set with an empty Value clears any other key
-	Model      string   // --model constraint, as given (resolved against the catalog later)
-	Effort     string   // --effort constraint, as given
-	PromptFlag Optional // -p, --prompt, --print
-	Prompt     Optional // the positional prompt
-	PromptFile Optional // --prompt-file path, as given
-	FileText   string   // the --prompt-file contents, read by the caller before capture
-	Docs       []string // --doc paths, as given, in order; routing only, never in the child's argv
-	Raw        []string // exec only: native tokens after the first "--", passed to the child except reserved model/effort selections
+	CLI        string               // the exec CLI, or --cli in decision mode; empty routes across every CLI
+	APIKey     Optional             // --api-key; Set with an empty Value clears any other key
+	Native     map[string]Selection // exec: the model and effort each enabled CLI's templates detected in Raw; nil when none
+	PromptFlag Optional             // -p, --prompt, --print
+	Prompt     Optional             // the positional prompt
+	PromptFile Optional             // --prompt-file path, as given
+	FileText   string               // the --prompt-file contents, read by the caller before capture
+	Docs       []string             // --doc paths, as given, in order; routing only, never in the child's argv
+	Raw        []string             // exec only: native tokens after the first "--", passed to the child unchanged
 }
 
 // ArgvPrompt is the {prompt} text: the prompt texts given on the command line joined in prompt

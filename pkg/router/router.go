@@ -109,7 +109,7 @@ func (d Decision) Choice() args.Choice {
 // option the classifier is not asked and every level is recorded as skipped. When
 // the docs have text, the complexity stage scores them first and the routing state carries the
 // project complexity. When the classifier cannot decide, in either stage, the CLI is used with only the
-// caller's fixed --model and --effort if it is known (one CLI left); otherwise Route returns an
+// native model and effort if it is known (one CLI left); otherwise Route returns an
 // error matching ErrCannotDecide beside a Decision holding only the stages and complexity completed.
 // With no option left it returns ErrNoEligible without asking the classifier.
 func (r *Router) Route(ctx context.Context, el *Eligibility, req *args.Request, captured *prompt.Result) (Decision, error) {
@@ -158,8 +158,8 @@ func (r *Router) chosen(el *Eligibility, o catalog.Option) Decision {
 	return Decision{CLI: o.CLI, Model: o.Name, Effort: effort, NoEffort: noEffort, OptionID: o.ID, Pinned: el.Pinned}
 }
 
-// cannotDecide applies the policy: with one CLI left (--cli, implied by --model, or the only one
-// eligible) it runs with only what the caller fixed; with more, there is nothing to run. Route adds
+// cannotDecide applies the policy: with one CLI left (--cli, implied by a native selection, or the only
+// one eligible) it runs with only the native model and effort; with more, there is nothing to run. Route adds
 // the model the classifier chose before a later stage failed.
 func (r *Router) cannotDecide(el *Eligibility, req *args.Request, cause error) (Decision, error) {
 	clis := el.CLIs()
@@ -170,9 +170,10 @@ func (r *Router) cannotDecide(el *Eligibility, req *args.Request, cause error) (
 		return Decision{}, fmt.Errorf("%w between %s: %w; pass --cli to run one without the classifier",
 			ErrCannotDecide, strings.Join(clis, ", "), cause)
 	}
-	d := Decision{CLI: clis[0], Pinned: el.Pinned, Undecided: cause, Effort: req.Effort}
-	if req.Model != "" {
-		// every option carries the caller's model, resolved to its catalog name when it has one
+	sel := req.Native[clis[0]]
+	d := Decision{CLI: clis[0], Pinned: el.Pinned, Undecided: cause, Effort: sel.Effort}
+	if sel.Model != "" {
+		// every option carries the native model, resolved to its catalog name when it has one
 		d.Model = el.Options[0].Name
 	}
 	return d, nil

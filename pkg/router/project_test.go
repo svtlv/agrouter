@@ -161,7 +161,7 @@ func TestRouteProjectSkippedWithoutDocText(t *testing.T) {
 func TestRouteProjectOneOptionSkipsClassifier(t *testing.T) {
 	cfg, cat := requestFixture(t)
 	client := &mocks.ClassifierMock{} // Ask panics if called
-	req := &args.Request{Model: "strong-model", Effort: "high"}
+	req := &args.Request{Native: natOf("alpha", "strong-model", "high")}
 	el := Eligible(cat, req)
 	require.Len(t, el.Options, 1)
 

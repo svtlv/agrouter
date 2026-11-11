@@ -117,7 +117,7 @@ func TestBuildPromptSources(t *testing.T) {
 }
 
 func TestBuildOwnFlagsNeverInArgv(t *testing.T) {
-	req := &Request{CLI: "alpha", APIKey: Optional{Value: "sk-secret", Set: true}, Model: "opus",
+	req := &Request{CLI: "alpha", APIKey: Optional{Value: "sk-secret", Set: true},
 		Docs: []string{"AGENTS.md"}}
 	res := Build(fixtureCLI(t, "alpha"), req, Choice{Model: "large-model"})
 	assert.Equal(t, []string{"alpha", "-p", "--model", "large-model"}, res.Argv)

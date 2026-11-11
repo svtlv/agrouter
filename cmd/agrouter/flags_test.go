@@ -35,11 +35,13 @@ func TestParseArgs_FlagsAroundPositional(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := parseOK(t, tc.argv)
+			cmd, err := parseArgs(tc.argv)
+			require.NoError(t, err)
+			req := cmd.req
 			assert.Equal(t, args.ModeDecision, req.Mode)
 			assert.Equal(t, positional("fix it"), req.Prompt)
-			assert.Equal(t, "m", req.Model)
-			assert.Equal(t, "high", req.Effort)
+			assert.Equal(t, "m", cmd.model)
+			assert.Equal(t, "high", cmd.effort)
 			assert.Empty(t, req.Raw)
 		})
 	}
@@ -155,9 +157,10 @@ func TestParseArgs_OwnFlags(t *testing.T) {
 		assert.Equal(t, args.Optional{Value: "k-1", Set: true}, req.APIKey)
 	})
 	t.Run("--model and --effort are constraints", func(t *testing.T) {
-		req := parseOK(t, []string{"--model", "m-1", "--effort=high", "x"})
-		assert.Equal(t, "m-1", req.Model)
-		assert.Equal(t, "high", req.Effort)
+		cmd, err := parseArgs([]string{"--model", "m-1", "--effort=high", "x"})
+		require.NoError(t, err)
+		assert.Equal(t, "m-1", cmd.model)
+		assert.Equal(t, "high", cmd.effort)
 	})
 	t.Run("--help", func(t *testing.T) {
 		cmd, err := parseArgs([]string{"--verbose", "--help"})
@@ -284,9 +287,11 @@ func TestParseArgs_Raw(t *testing.T) {
 
 func TestParseArgs_SlashTokens(t *testing.T) {
 	// go-flags on Windows takes "/x" as an option; prompts and values starting with "/" must survive
-	req := parseOK(t, []string{"--model", "/models/m", "--doc=/weird", "/review the diff"})
+	cmd, err := parseArgs([]string{"--model", "/models/m", "--doc=/weird", "/review the diff"})
+	require.NoError(t, err)
+	req := cmd.req
 	assert.Equal(t, positional("/review the diff"), req.Prompt)
-	assert.Equal(t, "/models/m", req.Model)
+	assert.Equal(t, "/models/m", cmd.model)
 	assert.Equal(t, []string{"/weird"}, req.Docs)
 }
 

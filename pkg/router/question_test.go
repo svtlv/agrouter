@@ -90,9 +90,19 @@ func TestNewTreeKeepsSeparatorNamesApart(t *testing.T) {
 	cat, err := catalog.Build(cfg)
 	require.NoError(t, err)
 
-	tr := newTree(cfg, cat.Options, "")
+	tr := newTree(cfg, cat.Options, nil)
 	assert.Equal(t, classifier.Criteria{{Name: "b/c", Value: modelEntry{Description: "First.", Efforts: []string{"low"}}}},
 		tr.modelCriteria("a"))
 	assert.Equal(t, classifier.Criteria{{Name: "c", Value: modelEntry{Description: "Second.", Efforts: []string{"high"}}}},
 		tr.modelCriteria("a/b"))
+}
+
+func TestNewTreePassedEffortsApplyPerCLI(t *testing.T) {
+	cfg, cat := requestFixture(t)
+	opts := []catalog.Option{cat.Options[2], cat.Options[3]} // alpha's fast model and beta's worker@low
+	tr := newTree(cfg, opts, map[string]string{"alpha": "turbo"})
+	assert.Equal(t, []string{"turbo"}, tr.modelCriteria("alpha")[0].Value.(modelEntry).Efforts,
+		"alpha's option without an effort carries the value passed through for alpha")
+	assert.Equal(t, []string{"low"}, tr.modelCriteria("beta")[0].Value.(modelEntry).Efforts,
+		"beta's own effort is untouched")
 }

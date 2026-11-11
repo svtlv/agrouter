@@ -350,12 +350,12 @@ Compatibility notes:
 - Modify: `pkg/router/router_test.go` (and eligibility tests)
 - Modify: `cmd/agrouter/app.go` (temporary wiring from the existing `--model`/`--effort` values until Task 4)
 
-- [ ] replace `Request.Model`/`Request.Effort` with `Request.Native map[string]args.Selection`
-- [ ] `Eligible`: pin filter, native CLI filter, then per-CLI model/effort filters reusing `filterModel`/`filterEffort` logic; a catalog model of CLI A drops an effort-only CLI B
-- [ ] make `cannotDecide` keep the native values of the one CLI left; reword drop/warning labels to native wording (`native model X`)
-- [ ] keep `ModelPassthrough`/`EffortPassthrough` semantics per CLI; existing goldens stay byte-identical (`go test ./pkg/router -update` gives no diff)
-- [ ] tests for every row of the routing cases table, plus multi-CLI: no selection keeps all CLIs; `--model opus` with a Claude-only template pins Claude; a template shared by two CLIs keeps both for the cli stage; conflicting model/effort detections across CLIs keep the model's CLI
-- [ ] run `make test` - must pass before task 4
+- [x] replace `Request.Model`/`Request.Effort` with `Request.Native map[string]args.Selection`
+- [x] `Eligible`: pin filter, native CLI filter, then per-CLI model/effort filters reusing `filterModel`/`filterEffort` logic; a catalog model of CLI A drops an effort-only CLI B
+- [x] make `cannotDecide` keep the native values of the one CLI left (read from `req.Native`, so `Route` keeps its signature); reword drop/warning labels to native wording (`native model X`)
+- [x] keep `ModelPassthrough`/`EffortPassthrough` semantics per CLI; existing goldens stay byte-identical (`go test ./pkg/router -update` gives no diff)
+- [x] tests for every row of the routing cases table, plus multi-CLI: no selection keeps all CLIs; `--model opus` with a Claude-only template pins Claude; a template shared by two CLIs keeps both for the cli stage; conflicting model/effort detections across CLIs keep the model's CLI
+- [x] run `make test` - must pass before task 4 (⚠️ temporary wiring: `nativeFromFlags` in `cmd/agrouter/app.go` maps the old `--model`/`--effort` values to `Request.Native`; Task 4 deletes it)
 
 ### Task 4: Exec command line: optional provider, `--cli` pin, removed options
 
