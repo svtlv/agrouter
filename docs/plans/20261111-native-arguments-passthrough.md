@@ -422,11 +422,11 @@ Compatibility notes:
 **Files:**
 - Modify: `pkg/config/defaults/config`
 
-- [ ] change codex `model_args` to `["-c", "model=\"{model}\""]`, with a comment (ralphex's spelling; Codex rejects a repeated `--model`)
-- [ ] rewrite the argv-order comment above `[cli.<name>]`: generated args only for fields the native args did not set, then native args unchanged; templates also define which native spellings are recognized
-- [ ] confirm parse-only with an empty `CODEX_HOME` (no credentials, no inference): `codex exec -c model="a" -m b --help` and a repeated `-c model_reasoning_effort` both exit 0
-- [ ] try to confirm the `-m` flag beats `-c model` without inference (e.g. the model in `codex exec`'s startup header with no credentials); if not possible, mark ⚠️ and keep it in Post-Completion
-- [ ] run `make test` (embedded config smoke test) - must pass before task 9
+- [x] change codex `model_args` to `["-c", "model=\"{model}\""]`, with a comment (ralphex's spelling; Codex rejects a repeated `--model`)
+- [x] rewrite the argv-order comment above `[cli.<name>]`: generated args only for fields the native args did not set, then native args unchanged; templates also define which native spellings are recognized
+- [x] confirm parse-only with an empty `CODEX_HOME` (no credentials, no inference): `codex exec -c model="a" -m b --help` and a repeated `-c model_reasoning_effort` both exit 0 (confirmed on 0.167.1; a repeated `-m` still exits 2)
+- [x] try to confirm the `-m` flag beats `-c model` without inference (e.g. the model in `codex exec`'s startup header with no credentials); if not possible, mark ⚠️ and keep it in Post-Completion (confirmed: with empty `CODEX_HOME`, `-c model="cfgmodel" -m flagmodel` shows `model: flagmodel` in the header; no inference ran)
+- [x] run `make test` (embedded config smoke test) - must pass before task 9 (⚠️ also updated `TestApp_RalphexCodexMode` and `TestRouteSingleOptionPassthrough` expectations to the `-c model=` form; the ralphex-mode native fixture now uses `-c model="..."`)
 
 ### Task 9: Verify acceptance criteria
 
@@ -460,7 +460,6 @@ Compatibility notes:
   the selection line shows `opus`/`medium` with source `native`, no classifier call is logged, and the child argv holds one `--model` and one `--effort`.
 - one ralphex phase with `task_model = opus:` should log only an effort-stage classifier call.
 - one provider-less run, `agrouter exec "small task"`, should log a cli-stage call and start the chosen CLI.
-- if Task 8 could not confirm Codex flag-over-config precedence without inference, check it once on a cheap Codex run.
 
 **External system updates:**
 - user-owned ralphex config: remove the temporary `--model opus --effort medium` pinned before agrouter's `--` **in the same step as installing the new agrouter** (otherwise phases without a spec exit 2); keep `codex_model =`/`codex_reasoning_effort =` empty for routed Codex; set per-phase `task_model`/`review_model`/`plan_model` (and `codex_model`/`codex_reasoning_effort` if wanted)

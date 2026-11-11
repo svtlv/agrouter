@@ -100,7 +100,7 @@ func TestRouteSingleOptionPassthrough(t *testing.T) {
 	assert.Equal(t, Decision{CLI: "codex", Model: "gpt-9", Effort: "turbo", OptionID: "codex", Pinned: true,
 		Stages: []Stage{{Level: LevelCLI, Choice: "codex", Skipped: true}, {Level: LevelModel, Choice: "gpt-9", Skipped: true},
 			{Level: LevelEffort, Choice: "turbo", Skipped: true}}}, d)
-	assert.Equal(t, []string{"codex", "exec", "--model", "gpt-9", "-c", `model_reasoning_effort="turbo"`},
+	assert.Equal(t, []string{"codex", "exec", "-c", `model="gpt-9"`, "-c", `model_reasoning_effort="turbo"`},
 		args.Build(mustCLI(t, cfg, d.CLI), req, d.Choice()).Argv)
 }
 

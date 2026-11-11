@@ -483,20 +483,20 @@ func TestApp_RalphexCodexMode(t *testing.T) {
 		require.Equal(t, 0, r.code, r.stderr)
 		assert.Equal(t, map[string]any{"cli": "codex", "model": "gpt-6.1-sol", "effort": "medium", "confidence": map[string]any{"model": 0.9, "effort": 0.9}}, selectionLog(t, r.stderr))
 		argv, stdin, _ := e.child()
-		assert.Equal(t, slices.Concat([]string{"exec", "--model", "gpt-6.1-sol", "-c", `model_reasoning_effort="medium"`}, native), argv)
+		assert.Equal(t, slices.Concat([]string{"exec", "-c", `model="gpt-6.1-sol"`, "-c", `model_reasoning_effort="medium"`}, native), argv)
 		assert.Equal(t, task, string(stdin))
 	})
 
 	t.Run("model and effort fixed: no Jev call", func(t *testing.T) {
 		e := newEnv(t)
 		e.fakeCommands()
-		r := e.run([]string{"exec", "codex", "--", "--model", "gpt-6.1-sol", "-c", `model_reasoning_effort="xhigh"`,
+		r := e.run([]string{"exec", "codex", "--", "-c", `model="gpt-6.1-sol"`, "-c", `model_reasoning_effort="xhigh"`,
 			"-c", "stream_idle_timeout_ms=3600000", "--sandbox", "workspace-write"}, strings.NewReader(task))
 
 		require.Equal(t, 0, r.code, r.stderr)
 		assert.Equal(t, map[string]any{"cli": "codex", "model": "gpt-6.1-sol", "effort": "xhigh"}, selectionLog(t, r.stderr))
 		argv, _, _ := e.child()
-		assert.Equal(t, []string{"exec", "--model", "gpt-6.1-sol", "-c", `model_reasoning_effort="xhigh"`, "-c", "stream_idle_timeout_ms=3600000", "--sandbox", "workspace-write"}, argv, "unchanged, nothing generated")
+		assert.Equal(t, []string{"exec", "-c", `model="gpt-6.1-sol"`, "-c", `model_reasoning_effort="xhigh"`, "-c", "stream_idle_timeout_ms=3600000", "--sandbox", "workspace-write"}, argv, "unchanged, nothing generated")
 		assert.Empty(t, e.jev.requests())
 	})
 }
