@@ -914,6 +914,15 @@ func TestApp_Errors(t *testing.T) {
 		assert.NoFileExists(t, filepath.Join(e.out, "argv.json"), "the child must not run")
 	})
 
+	t.Run("exec CLI without enabled models is no prompt", func(t *testing.T) {
+		e := newSyntheticEnv(t)
+		e.globalConfig(syntheticCLIs(t) + "\n[model.other]\nenabled = false\n")
+		oneLine(t, e.run([]string{"exec", "beta", "fix it"}, nil), "agrouter: exec beta: not a configured, enabled CLI")
+		oneLine(t, e.run([]string{"exec", "beta", "-p", "fix it"}, nil), "agrouter: exec beta: not a configured, enabled CLI")
+		assert.Empty(t, e.jev.requests())
+		assert.NoFileExists(t, filepath.Join(e.out, "argv.json"), "the child must not run")
+	})
+
 	t.Run("exec usage errors", func(t *testing.T) {
 		e := newSyntheticEnv(t)
 		oneLine(t, e.run([]string{"exec", "alpha", "--model", "strong", "fix it"}, nil), "agrouter: --model/-m is not an agrouter option")
