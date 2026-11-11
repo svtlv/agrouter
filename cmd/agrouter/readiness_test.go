@@ -630,3 +630,13 @@ func TestPreflightBlock(t *testing.T) {
 		})
 	}
 }
+
+func TestPreflightErrors_ErrorAndCode(t *testing.T) {
+	blocks := preflightErrors{
+		{line: "agrouter: alpha unavailable: auth_failed", code: runner.ExitStartFailure, cli: "alpha"},
+		{line: "agrouter: beta availability unverified: probe_throttled", code: exitUsage, cli: "beta"},
+	}
+
+	assert.Equal(t, "agrouter: alpha unavailable: auth_failed\nagrouter: beta availability unverified: probe_throttled", blocks.Error())
+	assert.Equal(t, runner.ExitStartFailure, blocks.code(), "the exit code is the first block's")
+}

@@ -519,7 +519,7 @@ func TestRouteKeepsAskedModelOnLaterFailure(t *testing.T) {
 		wantModel string
 	}{
 		{name: "asked model kept", req: &args.Request{CLI: "alpha"}, wantModel: "strong-model"},
-		{name: "caller's model kept", req: &args.Request{Native: natOf("alpha", "strong-model", "")}, wantModel: "strong-model"},
+		{name: "native model kept", req: &args.Request{Native: natOf("alpha", "strong-model", "")}, wantModel: "strong-model"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

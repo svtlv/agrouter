@@ -305,7 +305,7 @@ Note: the first line is readable without parsing JSON; the second carries the sa
 | `router` | agrouter chose it: the classifier, or the one option left |
 | `native` | a native model or effort argument after `--` fixed it |
 | `verified_child_default` | the child's own default, as its prompt-free probe reported it for this working directory and settings |
-| `child_default_unknown` | the child's default is not known: `default_not_reported`; or `default_for_other_model` when the probe reported the default effort of the child's default model, but agrouter or the caller set another model |
+| `child_default_unknown` | the child's default is not known: `default_not_reported`; or `default_for_other_model` when the probe reported the default effort of the child's default model, but agrouter or a native model argument set another model |
 
 Values the classifier chose before the failure (the model when only the effort stage failed) and values fixed natively keep their source and are never listed as fallbacks. Top-level `model`/`effort` stay `null` whenever agrouter passes no selection flag, even when `effective` shows a verified default. A catalog default or a model list's recommendation is never reported as verified. An intentional omission (a model without effort levels, the effort of a native model outside the catalog) is no fallback and prints no warning.
 

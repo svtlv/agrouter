@@ -98,25 +98,15 @@ func (e *Eligibility) filterNative(cat *catalog.Catalog) {
 			break
 		}
 	}
-	dropReason := map[string]string{}
-	var kept []string
+	var opts []catalog.Option
 	for _, cli := range catalog.CLIs(e.Options) {
 		switch {
 		case !slices.Contains(detected, cli):
-			dropReason[cli] = reason
+			e.Dropped = append(e.Dropped, Drop{CLI: cli, Reason: reason})
 		case owner != "" && e.native[cli].Model == "":
-			dropReason[cli] = "native model " + e.native[owner].Model
+			e.Dropped = append(e.Dropped, Drop{CLI: cli, Reason: "native model " + e.native[owner].Model})
 		default:
-			kept = append(kept, cli)
-		}
-	}
-	var opts []catalog.Option
-	for _, cli := range kept {
-		opts = append(opts, e.narrow(cat, cli, e.native[cli])...)
-	}
-	for _, cli := range catalog.CLIs(e.Options) {
-		if r, ok := dropReason[cli]; ok {
-			e.Dropped = append(e.Dropped, Drop{CLI: cli, Reason: r})
+			opts = append(opts, e.narrow(cat, cli, e.native[cli])...)
 		}
 	}
 	e.Options = opts
