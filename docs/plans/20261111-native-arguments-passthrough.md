@@ -385,12 +385,12 @@ Compatibility notes:
 - Modify: `cmd/agrouter/fallback.go`
 - Modify: `cmd/agrouter/readiness_test.go`, `cmd/agrouter/app_test.go`
 
-- [ ] start one preflight per candidate CLI (pinned, or every CLI left after the native filter) under the shared deadline; wait for all on every return path
-- [ ] apply each report to its CLI's options; stop only when every candidate is blocked, printing each block line in config order with the first CLI's exit code
-- [ ] `execSelection` uses the chosen CLI's report for the delegated-model check and the readiness summary
-- [ ] run `CheckSeparator` for the pinned CLI before routing, and for a decided CLI after routing, before the child starts
-- [ ] tests with fake-peer fixtures: one of two CLIs quota-blocked routes to the other without asking the cli stage; both blocked prints two lines and exits with the first's code; strict unknown on one CLI; probes stop on early return
-- [ ] run `make test` - must pass before task 6
+- [x] start one preflight per candidate CLI (pinned, or every CLI left after the native filter) under the shared deadline; wait for all on every return path
+- [x] apply each report to its CLI's options; stop only when every candidate is blocked, printing each block line in config order with the first CLI's exit code
+- [x] `execSelection` uses the chosen CLI's report for the delegated-model check and the readiness summary
+- [x] run `CheckSeparator` for the pinned CLI before routing, and for a decided CLI after routing, before the child starts
+- [x] tests with fake-peer fixtures: one of two CLIs quota-blocked routes to the other without asking the cli stage; both blocked prints two lines and exits with the first's code; strict unknown on one CLI; probes stop on early return
+- [x] run `make test` - must pass before task 6
 
 ### Task 6: Report native values
 

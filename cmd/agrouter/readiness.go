@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/svtlv/agrouter/pkg/catalog"
 	"github.com/svtlv/agrouter/pkg/config"
 	"github.com/svtlv/agrouter/pkg/readiness"
 	"github.com/svtlv/agrouter/pkg/router"
@@ -23,49 +24,74 @@ type ReadinessChecker interface {
 
 var _ ReadinessChecker = readiness.Checker{}
 
-// preflight is the exec CLI's readiness check, running while the input is captured.
+// preflight is one candidate CLI's readiness check, running while the input is captured.
 type preflight struct {
+	cli    config.CLI
 	done   chan struct{}
 	report readiness.Report
 }
 
-// checked is what exec's preflight found, kept for the selection line: the report with the child's
-// defaults and its evaluation over the eligible options.
+// preflights are the checks of every candidate CLI, in config order.
+type preflights []*preflight
+
+// checked is what exec's preflight found for the chosen CLI, kept for the selection line: the report
+// with the child's defaults and its evaluation over the eligible options.
 type checked struct {
 	report readiness.Report
 	ev     *readiness.Evaluation
 }
 
-// startPreflight checks cli under ctx in the background, using agrouter's configured context.
-func (a *app) startPreflight(ctx context.Context, cli config.CLI) *preflight {
-	p := &preflight{done: make(chan struct{})}
-	go func() {
-		defer close(p.done)
-		p.report = a.checker.Check(ctx, cli)
-	}()
-	return p
+// startPreflights checks each of clis under ctx in the background, using agrouter's configured context.
+func (a *app) startPreflights(ctx context.Context, clis []config.CLI) preflights {
+	pfs := make(preflights, len(clis))
+	for i, cli := range clis {
+		p := &preflight{cli: cli, done: make(chan struct{})}
+		pfs[i] = p
+		go func() {
+			defer close(p.done)
+			p.report = a.checker.Check(ctx, cli)
+		}()
+	}
+	return pfs
 }
 
-// wait returns the report once the checks are done.
-func (p *preflight) wait() readiness.Report {
-	<-p.done
-	return p.report
+// wait blocks until every check is done.
+func (pfs preflights) wait() {
+	for _, p := range pfs {
+		<-p.done
+	}
 }
 
-// applyPreflight removes the options cli cannot run now from el, and warns once when what is left
-// is unverified. When nothing is left it returns the error that stops exec before any classifier request.
-func (a *app) applyPreflight(cli config.CLI, models []config.Model, p *preflight, el *router.Eligibility) (*checked, error) {
-	report := p.wait()
-	ev := readiness.Evaluate(report, el.Options, models, unknownPolicy(cli), a.clock())
-	a.debug.readiness(report, ev)
-	if ev.Blocked != nil {
-		return nil, preflightBlock(cli, *ev.Blocked)
+// applyPreflights removes the options each CLI cannot run now from el, and warns once per CLI whose
+// remaining options are unverified. A blocked CLI just drops out of routing; when every candidate is
+// blocked it returns the error that stops exec before any classifier request. The result maps each
+// unblocked CLI to what its check found.
+func (a *app) applyPreflights(models []config.Model, pfs preflights, el *router.Eligibility) (map[string]*checked, error) {
+	pfs.wait()
+	results := make(map[string]*checked, len(pfs))
+	var (
+		excluded []string
+		blocks   preflightErrors
+	)
+	for _, p := range pfs {
+		opts := catalog.ByCLI(el.Options, p.cli.Name)
+		ev := readiness.Evaluate(p.report, opts, models, unknownPolicy(p.cli), a.clock())
+		a.debug.readiness(p.report, ev)
+		excluded = append(excluded, ev.Excluded...)
+		if ev.Blocked != nil {
+			blocks = append(blocks, preflightBlock(p.cli, *ev.Blocked))
+			continue
+		}
+		if ev.Unknown != "" {
+			a.warnUnknown(p.cli, ev.Unknown)
+		}
+		results[p.cli.Name] = &checked{report: p.report, ev: ev}
 	}
-	el.Exclude(ev.Excluded)
-	if ev.Unknown != "" {
-		a.warnUnknown(cli, ev.Unknown)
+	if len(results) == 0 {
+		return nil, blocks
 	}
-	return &checked{report: report, ev: ev}, nil
+	el.Exclude(excluded)
+	return results, nil
 }
 
 // warnUnknown is the one warning that cli's availability is unverified for reason.
@@ -102,6 +128,35 @@ type preflightError struct {
 }
 
 func (e *preflightError) Error() string { return e.line }
+
+// preflightErrors is the stop when every candidate CLI is blocked: one block per CLI in config order.
+// The exit code is the first one's.
+type preflightErrors []*preflightError
+
+func (b preflightErrors) Error() string {
+	lines := make([]string, len(b))
+	for i, e := range b {
+		lines[i] = e.line
+	}
+	return strings.Join(lines, "\n")
+}
+
+// code is the exit code of the first blocked CLI.
+func (b preflightErrors) code() int { return b[0].code }
+
+// routingSkipped is the line for the blocks found before routing: the routing provider was never
+// asked. Several CLIs share one line, each with its own reason.
+func (b preflightErrors) routingSkipped() string {
+	if len(b) == 1 {
+		return b[0].routingSkipped()
+	}
+	parts := make([]string, len(b))
+	for i, e := range b {
+		parts[i] = e.cli + " " + e.reason
+	}
+	return fmt.Sprintf("agrouter: routing skipped: %s; routing provider was not called; child CLI was not started",
+		strings.Join(parts, ", "))
+}
 
 // routingSkipped is the line for a block found before routing: the routing provider was never asked.
 func (e *preflightError) routingSkipped() string {

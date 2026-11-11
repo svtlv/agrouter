@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -171,11 +172,13 @@ func (a *app) run(argv []string) int {
 		// the stages completed before the classifier failed, if any
 		a.debug.decision(d.Decision)
 		a.debug.failed(err)
-		if blocked, ok := errors.AsType[*preflightError](err); ok {
-			// the block came before any routing request, so say why routing never ran
+		if blocked, ok := errors.AsType[preflightErrors](err); ok {
+			// the blocks came before any routing request, so say why routing never ran
 			fmt.Fprintln(a.stderr, blocked.routingSkipped())
-			fmt.Fprintln(a.stderr, blocked.line)
-			return blocked.code
+			for _, b := range blocked {
+				fmt.Fprintln(a.stderr, b.line)
+			}
+			return blocked.code()
 		}
 		if req.Mode == args.ModeDecision && errors.Is(err, router.ErrCannotDecide) {
 			// stdout still gets the decision, all null with the reasons, beside the error line
@@ -188,6 +191,12 @@ func (a *app) run(argv []string) int {
 	a.debug.decision(d.Decision)
 
 	cli, _ := cfg.CLIByName(d.CLI)
+	if req.Mode == args.ModeExec && req.CLI == "" {
+		// a pinned CLI was checked before routing; a decided one is known only now
+		if err = args.CheckSeparator(cli, req); err != nil {
+			return a.fail(err)
+		}
+	}
 	res := args.Build(cli, req, generatedChoice(req, d.Decision))
 	a.debug.command(res)
 
@@ -323,8 +332,8 @@ type routed struct {
 }
 
 // route reads --prompt-file and every --doc, captures the prompt and decides, all within the routing
-// deadline. Exec checks its CLI's readiness meanwhile and routes only over what it can run now; when
-// nothing is left it returns a *preflightError without asking the classifier. Eligibility warnings go to stderr
+// deadline. Exec checks every candidate CLI's readiness meanwhile and routes only over what can run now;
+// when every candidate is blocked it returns preflightErrors without asking the classifier. Eligibility warnings go to stderr
 // once the prompt is known to be there. When the classifier cannot decide, the error comes with the partial
 // decision: the stages and complexity completed.
 func (a *app) route(cfg *config.Config, cat *catalog.Catalog, rt *router.Router, req *args.Request) (routed, error) {
@@ -338,14 +347,14 @@ func (a *app) route(cfg *config.Config, cat *catalog.Catalog, rt *router.Router,
 		}
 		req.FileText = text
 	}
-	execCLI, pf, execErr := a.startExecChecks(ctx, cfg, req)
+	// the native filter needs no prompt, so the candidates are known before the input is read
+	el := router.Eligible(cat, req)
+	pfs, execErr := a.startExecChecks(ctx, cfg, req, el)
 	if execErr != nil {
 		return routed{}, execErr
 	}
-	if pf != nil {
-		// an early return stops the probes before leaving
-		defer func() { cancel(); pf.wait() }()
-	}
+	// an early return stops the probes before leaving
+	defer func() { cancel(); pfs.wait() }()
 	// docs are read even when one option will be left, so a bad --doc fails every call alike; the
 	// deadline passing mid-read is not a bad doc, so the classifier cannot decide
 	var (
@@ -372,10 +381,9 @@ func (a *app) route(cfg *config.Config, cat *catalog.Catalog, rt *router.Router,
 		captured.Undecidable = undecidable
 	}
 
-	el := router.Eligible(cat, req)
-	var pre *checked
-	if pf != nil {
-		if pre, err = a.applyPreflight(execCLI, cfg.Models, pf, el); err != nil {
+	var checks map[string]*checked
+	if len(pfs) > 0 {
+		if checks, err = a.applyPreflights(cfg.Models, pfs, el); err != nil {
 			return routed{}, err
 		}
 	}
@@ -398,20 +406,30 @@ func (a *app) route(cfg *config.Config, cat *catalog.Catalog, rt *router.Router,
 	for i, o := range el.Options {
 		options[i] = optionJSON{ID: o.ID, CLI: o.CLI, Model: o.Name, Effort: el.EffortFor(o)}
 	}
-	return routed{Decision: d, captured: captured, options: options, checked: pre}, nil
+	return routed{Decision: d, captured: captured, options: options, checked: checks[d.CLI]}, nil
 }
 
 // startExecChecks checks the pinned exec CLI's native arguments for a separator its prompt argument would clash
-// with, then starts its readiness probe. Without a pinned CLI, or outside exec, it does neither.
-func (a *app) startExecChecks(ctx context.Context, cfg *config.Config, req *args.Request) (config.CLI, *preflight, error) {
-	if req.Mode != args.ModeExec || req.CLI == "" {
-		return config.CLI{}, nil, nil
+// with, then starts the readiness probe of every candidate CLI in el: the pinned one, or those left after the
+// native filter. Outside exec it does nothing.
+func (a *app) startExecChecks(ctx context.Context, cfg *config.Config, req *args.Request, el *router.Eligibility) (preflights, error) {
+	if req.Mode != args.ModeExec {
+		return nil, nil
 	}
-	cli, _ := cfg.CLIByName(req.CLI)
-	if err := args.CheckSeparator(cli, req); err != nil {
-		return config.CLI{}, nil, err
+	if req.CLI != "" {
+		cli, _ := cfg.CLIByName(req.CLI)
+		if err := args.CheckSeparator(cli, req); err != nil {
+			return nil, err
+		}
 	}
-	return cli, a.startPreflight(ctx, cli), nil
+	candidates := el.CLIs()
+	var clis []config.CLI
+	for _, cli := range cfg.CLIs {
+		if slices.Contains(candidates, cli.Name) {
+			clis = append(clis, cli)
+		}
+	}
+	return a.startPreflights(ctx, clis), nil
 }
 
 // printDecision writes concise or indented verbose JSON to stdout.
