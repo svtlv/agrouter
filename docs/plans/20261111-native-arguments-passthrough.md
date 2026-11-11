@@ -318,12 +318,12 @@ Compatibility notes:
 - Modify: `pkg/args/native.go`
 - Modify: `pkg/args/native_test.go`
 
-- [ ] replace `nativeOptions`/`flagValue` with `Selection` and `NativeSelection(cli, raw)` per the detection table; keep `CheckSeparator`
-- [ ] match exact template sequences, the `--flag=value` form of a two-token long-flag template, and literal prefix/suffix tokens with optional matching quotes around the placeholder
-- [ ] stop at the child's own `--`; last match wins; empty values and a missing trailing value are no selection
-- [ ] tests with synthetic Claude-like and codex-like templates: quoted and unquoted, `=` form, repeats (last wins), tokens after the child's `--` ignored
-- [ ] negative tests: alias spellings (`-m x`), lookalike prefixes (`--modelx`, `-c model_x=1`), empty and missing values, CLI without `effort_args`
-- [ ] run `make test` - must pass before task 2
+- [x] add `Selection` and `NativeSelection(cli, raw)` per the detection table; keep `CheckSeparator` (⚠️ `nativeOptions`/`flagValue` stay until Task 2 rewrites `Build`, their only caller, and are deleted there)
+- [x] match exact template sequences, the `--flag=value` form of a two-token long-flag template, and literal prefix/suffix tokens with optional matching quotes around the placeholder
+- [x] stop at the child's own `--`; last match wins; empty values and a missing trailing value are no selection
+- [x] tests with synthetic Claude-like and codex-like templates: quoted and unquoted, `=` form, repeats (last wins), tokens after the child's `--` ignored
+- [x] negative tests: alias spellings (`-m x`), lookalike prefixes (`--modelx`, `-c model_x=1`), empty and missing values, CLI without `effort_args`
+- [x] run `make test` - must pass before task 2
 
 ### Task 2: Build argv with native args unchanged after generated args
 
@@ -334,7 +334,7 @@ Compatibility notes:
 - Modify: `cmd/agrouter/app_test.go` (native-stripping expectations, e.g. near line 1374)
 - Modify: `cmd/agrouter/debug_test.go` (redacted argv order, e.g. near line 67)
 
-- [ ] rewrite `Build`: command, exec_args, model_args (when `choice.Model` set), effort_args (when `choice.Effort` set), all of `req.Raw`, prompt_args; drop `tailAt`/`tailLen`
+- [ ] rewrite `Build` and delete `nativeOptions`/`flagValue` with their test: command, exec_args, model_args (when `choice.Model` set), effort_args (when `choice.Effort` set), all of `req.Raw`, prompt_args; drop `tailAt`/`tailLen`
 - [ ] update `Redacted` for the single raw range
 - [ ] tests: every native token byte-identical and in order (empty tokens, repeats, attached forms, missing values, later separators, codex `-c` expressions, aliases); generated args precede the whole native block
 - [ ] update redaction tests (one `<N raw argument(s)>` block, prompt still `<prompt>`)

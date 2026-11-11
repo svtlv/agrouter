@@ -5,7 +5,63 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/svtlv/agrouter/pkg/config"
 )
+
+func TestNativeSelection(t *testing.T) {
+	claudeLike := config.CLI{ModelArgs: []string{"--model", "{model}"}, EffortArgs: []string{"--effort", "{effort}"}}
+	codexLike := config.CLI{
+		ModelArgs:  []string{"-c", `model="{model}"`},
+		EffortArgs: []string{"-c", `model_reasoning_effort="{effort}"`},
+	}
+	modelOnly := config.CLI{ModelArgs: []string{"--model", "{model}"}}
+	tests := []struct {
+		name string
+		cli  config.CLI
+		raw  []string
+		want Selection
+	}{
+		{name: "no native args", cli: claudeLike},
+		{name: "exact sequences", cli: claudeLike, raw: []string{"-v", "--model", "opus", "--effort", "low"}, want: Selection{"opus", "low"}},
+		{name: "attached long flag", cli: claudeLike, raw: []string{"--model=opus", "--effort=low"}, want: Selection{"opus", "low"}},
+		{name: "model only", cli: claudeLike, raw: []string{"--model", "opus"}, want: Selection{Model: "opus"}},
+		{name: "effort only", cli: claudeLike, raw: []string{"--effort", "low"}, want: Selection{Effort: "low"}},
+		{name: "last match wins", cli: claudeLike, raw: []string{"--model", "a", "--model=b", "--model", "c"}, want: Selection{Model: "c"}},
+		{name: "attached after exact", cli: claudeLike, raw: []string{"--model", "a", "--model=b"}, want: Selection{Model: "b"}},
+		{name: "quoted codex values", cli: codexLike, raw: []string{"-c", `model="m"`, "-c", `model_reasoning_effort="high"`}, want: Selection{"m", "high"}},
+		{name: "unquoted codex values", cli: codexLike, raw: []string{"-c", "model=m", "-c", "model_reasoning_effort=high"}, want: Selection{"m", "high"}},
+		{name: "ralphex shape", cli: codexLike, raw: []string{
+			"-c", "features.multi_agent=true", "--sandbox", "workspace-write", "-c", `model="m"`,
+			"-c", "model_reasoning_effort=medium", "-c", "stream_idle_timeout_ms=60000", "-c", `project_doc="p"`,
+		}, want: Selection{"m", "medium"}},
+		{name: "single quotes optional", cli: config.CLI{ModelArgs: []string{"-c", "model='{model}'"}}, raw: []string{"-c", "model=m"}, want: Selection{Model: "m"}},
+		{name: "child separator ends the scan", cli: claudeLike, raw: []string{"--model", "a", "--", "--model", "b", "--effort", "x"}, want: Selection{Model: "a"}},
+		{name: "separator first", cli: claudeLike, raw: []string{"--", "--model", "a"}},
+		{name: "model flag without value", cli: claudeLike, raw: []string{"--json", "--model"}},
+		{name: "value is another option", cli: claudeLike, raw: []string{"--model", "--effort", "low"}, want: Selection{Effort: "low"}},
+		{name: "empty values", cli: claudeLike, raw: []string{"--model", "", "--effort="}},
+		{name: "empty codex values", cli: codexLike, raw: []string{"-c", "model=", "-c", `model_reasoning_effort=""`}},
+		{name: "alias spelling is not recognized", cli: claudeLike, raw: []string{"-m", "x", "-mx", "-m=x"}},
+		{name: "codex alias is not recognized", cli: codexLike, raw: []string{"-m", "x", "--model", "y"}},
+		{name: "lookalike long flags", cli: claudeLike, raw: []string{"--modelx", "a", "--model-provider=b", "--models=c", "--effortx=d"}},
+		{name: "lookalike config keys", cli: codexLike, raw: []string{"-c", "model_x=1", "-c", "xmodel=1", "-c", "model_reasoning_effort_x=1", "-c", "models=1"}},
+		{name: "claude flags do not match codex", cli: codexLike, raw: []string{"--model", "opus", "--effort", "low"}},
+		{name: "config flag without a key", cli: codexLike, raw: []string{"-c"}},
+		{name: "cli without effort_args", cli: modelOnly, raw: []string{"--model", "a", "--effort", "low"}, want: Selection{Model: "a"}},
+		{name: "cli without templates", cli: config.CLI{}, raw: []string{"--model", "a"}},
+		{name: "lone placeholder never matches", cli: config.CLI{ModelArgs: []string{"{model}"}}, raw: []string{"x", "y"}},
+		{name: "suffix tokens must follow", cli: config.CLI{ModelArgs: []string{"--model", "{model}", "--yes"}}, raw: []string{"--model", "a", "--no", "--model", "b", "--yes"}, want: Selection{Model: "b"}},
+		{name: "value with equals sign", cli: claudeLike, raw: []string{"--model=a=b"}, want: Selection{Model: "a=b"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			original := append([]string(nil), tc.raw...)
+			assert.Equal(t, tc.want, NativeSelection(tc.cli, tc.raw))
+			assert.Equal(t, original, tc.raw, "the native slice stays unchanged")
+		})
+	}
+}
 
 func TestNativeOptions(t *testing.T) {
 	tests := []struct {
