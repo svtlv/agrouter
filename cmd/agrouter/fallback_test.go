@@ -75,23 +75,23 @@ func TestApp_ExecFallback(t *testing.T) {
 				"alpha default, not a classifier selection: effort high (verified child default)",
 			fallback: effortOnly, effective: map[string]any{"model": chosenBy(sourceRouter, "fast-1"), "effort": verified("high")},
 			childModel: "fast-1"},
-		{name: "caller's model is no fallback", stage: "effort", argv: []string{"--model", "strong"},
+		{name: "native model is no fallback", stage: "effort", argv: []string{"--model", "strong"},
 			warning: "agrouter: warning: Classifier routing failed at the effort stage (classifier_api_error); effort falls back to the " +
 				"alpha default, not a classifier selection: effort unknown (child did not report it)",
 			fallback:   effortOnly,
-			effective:  map[string]any{"model": chosenBy(sourceCaller, "deep-1"), "effort": unknownDefault(defaultNotReported)},
+			effective:  map[string]any{"model": chosenBy(sourceNative, "deep-1"), "effort": unknownDefault(defaultNotReported)},
 			childModel: "strong"},
 		{name: "the child's default model reported by alias", stage: "effort", argv: []string{"--model", "deep-1"},
 			model: "strong", effort: "high",
 			warning: "agrouter: warning: Classifier routing failed at the effort stage (classifier_api_error); effort falls back to the " +
 				"alpha default, not a classifier selection: effort high (verified child default)",
 			fallback:   effortOnly,
-			effective:  map[string]any{"model": chosenBy(sourceCaller, "deep-1"), "effort": verified("high")},
+			effective:  map[string]any{"model": chosenBy(sourceNative, "deep-1"), "effort": verified("high")},
 			childModel: "deep-1"},
-		{name: "caller's effort is no fallback", stage: "model", argv: []string{"--effort", "low"}, model: "m-2",
+		{name: "native effort is no fallback", stage: "model", argv: []string{"--effort", "low"}, model: "m-2",
 			warning: "agrouter: warning: Classifier routing failed at the model stage (classifier_api_error); model falls back to the " +
 				"alpha default, not a classifier selection: model m-2 (verified child default)",
-			fallback: modelOnly, effective: map[string]any{"model": verified("m-2"), "effort": chosenBy(sourceCaller, "low")},
+			fallback: modelOnly, effective: map[string]any{"model": verified("m-2"), "effort": chosenBy(sourceNative, "low")},
 			childHasEffort: true},
 		{name: "complexity stage", stage: "complexity", model: "m-2", effort: "low",
 			warning: "agrouter: warning: Classifier routing failed at the complexity stage (classifier_api_error); model and effort fall " +
@@ -270,7 +270,7 @@ func TestApp_ExecNoFallback(t *testing.T) {
 		require.Equal(t, exitOK, r.code, r.stderr)
 		s := selectionLog(t, r.stderr)
 		assert.NotContains(t, s, "fallback", "an intentional omission is no fallback")
-		assert.Equal(t, map[string]any{"model": chosenBy(sourceCaller, "made-up-9"), "effort": verified("high")}, s["effective"])
+		assert.Equal(t, map[string]any{"model": chosenBy(sourceNative, "made-up-9"), "effort": verified("high")}, s["effective"])
 	})
 
 	t.Run("a default effort of another model is unknown", func(t *testing.T) {
@@ -280,7 +280,7 @@ func TestApp_ExecNoFallback(t *testing.T) {
 
 		require.Equal(t, exitOK, r.code, r.stderr)
 		s := selectionLog(t, r.stderr)
-		assert.Equal(t, map[string]any{"model": chosenBy(sourceCaller, "made-up-9"), "effort": unknownDefault(defaultOtherModel)},
+		assert.Equal(t, map[string]any{"model": chosenBy(sourceNative, "made-up-9"), "effort": unknownDefault(defaultOtherModel)},
 			s["effective"])
 	})
 
@@ -308,4 +308,103 @@ func TestFallbackWarning(t *testing.T) {
 		fallbackWarning("tool-a", &reasonJSON{Code: reasonTimeout}, []string{"model", "effort"}, eff),
 		"no stage when the capture ran past the deadline")
 	assert.Empty(t, capitalize(""))
+}
+
+func TestApp_ExecNativeReporting(t *testing.T) {
+	t.Run("native values with source native on success", func(t *testing.T) {
+		e := newSyntheticEnv(t)
+		e.jev.pick = "fast@low"
+		e.checker = defaultsChecker("m-2", "high")
+		r := e.run([]string{"exec", "alpha", "fix it", "--", "--model", "strong", "--effort", "high"}, nil)
+
+		require.Equal(t, exitOK, r.code, r.stderr)
+		s := selectionLog(t, r.stderr)
+		assert.Equal(t, "alpha", s["cli"])
+		assert.Equal(t, "deep-1", s["model"], "the alias resolves to the catalog name")
+		assert.Equal(t, "high", s["effort"])
+		assert.NotContains(t, s, "effective", "no value is left to the child")
+	})
+
+	t.Run("a routed effort beside a native model", func(t *testing.T) {
+		e := newSyntheticEnv(t)
+		e.jev.pick = "fast@low"
+		r := e.run([]string{"exec", "alpha", "fix it", "--", "--model", "strong"}, nil)
+
+		require.Equal(t, exitOK, r.code, r.stderr)
+		s := selectionLog(t, r.stderr)
+		assert.Equal(t, "deep-1", s["model"])
+		assert.Equal(t, "low", s["effort"])
+	})
+
+	t.Run("a classifier failure keeps the native model with source native", func(t *testing.T) {
+		e := failingEnv(t, "effort", func(*fakeJev) {})
+		e.checker = defaultsChecker("", "high")
+		r := e.run([]string{"exec", "alpha", "fix it", "--", "--model", "strong"}, nil)
+
+		require.Equal(t, exitOK, r.code, r.stderr)
+		_, s := fallbackLog(t, r.stderr)
+		assert.Equal(t, chosenBy(sourceNative, "deep-1"), s["effective"].(map[string]any)["model"])
+	})
+
+	t.Run("a classifier failure keeps the native effort with source native", func(t *testing.T) {
+		e := failingEnv(t, "model", func(*fakeJev) {})
+		e.checker = defaultsChecker("m-2", "")
+		r := e.run([]string{"exec", "alpha", "fix it", "--", "--effort", "low"}, nil)
+
+		require.Equal(t, exitOK, r.code, r.stderr)
+		_, s := fallbackLog(t, r.stderr)
+		assert.Equal(t, chosenBy(sourceNative, "low"), s["effective"].(map[string]any)["effort"])
+	})
+
+	t.Run("routed values keep source router", func(t *testing.T) {
+		e := failingEnv(t, "effort", func(*fakeJev) {})
+		e.checker = defaultsChecker("", "high")
+		r := e.run([]string{"exec", "alpha", "fix it"}, nil)
+
+		require.Equal(t, exitOK, r.code, r.stderr)
+		_, s := fallbackLog(t, r.stderr)
+		assert.Equal(t, chosenBy(sourceRouter, "fast-1"), s["effective"].(map[string]any)["model"])
+	})
+
+	t.Run("an unknown native model leaves the effort to the child", func(t *testing.T) {
+		e := newSyntheticEnv(t)
+		e.checker = defaultsChecker("made-up-9", "high")
+		r := e.run([]string{"exec", "alpha", "fix it", "--", "--model", "made-up-9"}, nil)
+
+		require.Equal(t, exitOK, r.code, r.stderr)
+		s := selectionLog(t, r.stderr)
+		assert.Equal(t, "made-up-9", s["model"])
+		assert.Nil(t, s["effort"])
+		assert.Equal(t, verified("high"), s["effective"].(map[string]any)["effort"], "delegated to the child")
+	})
+}
+
+// TestApp_ExecNativeTokensNotLogged: only the resolved model and effort of a native selection are
+// reported; any other native token stays out of stderr, the console log and debug output.
+func TestApp_ExecNativeTokensNotLogged(t *testing.T) {
+	const (
+		nativeFlag  = "--secret-flag-zq"
+		nativeText = "secret-value-zq"
+	)
+	for _, debug := range []string{"", "1"} {
+		t.Run("debug="+debug, func(t *testing.T) {
+			e := newSyntheticEnv(t)
+			t.Setenv(envDebug, debug)
+			e.jev.pick = "fast@low"
+			r := e.run([]string{
+				"exec", "alpha", "fix it", "--verbose", "--",
+				nativeFlag, nativeText, "--model", "strong", "--effort=ignored", "--effort", "high",
+			}, nil)
+			require.Equal(t, exitOK, r.code, r.stderr)
+
+			logged, err := os.ReadFile(e.mirrorPath())
+			require.NoError(t, err)
+			for name, text := range map[string]string{"stderr": r.stderr, "console log": string(logged)} {
+				assert.NotContains(t, text, nativeFlag, name)
+				assert.NotContains(t, text, nativeText, name)
+				assert.NotContains(t, text, "ignored", name)
+			}
+			assert.Contains(t, r.stderr, `"model":"deep-1"`)
+		})
+	}
 }

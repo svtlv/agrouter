@@ -100,7 +100,7 @@ func TestDebug_JevFailureEchoingKey(t *testing.T) {
 	assert.Equal(t, "api key: from flag", lines[0])
 	assert.Equal(t, "stage cli: skipped (codex)", lines[3], "the stage completed before the failure")
 	assert.True(t, strings.HasPrefix(lines[4], "classifier failed: model stage: route request: "), lines[4])
-	assert.Contains(t, lines[4], "running codex with the caller's fixed values")
+	assert.Contains(t, lines[4], "running codex with the native values and the child's defaults")
 	assert.Equal(t, "command: codex exec -- <prompt>", lines[5])
 	assert.NotContains(t, r.stderr, "flag-secret-key")
 	assert.NotContains(t, r.stdout, "flag-secret-key")
@@ -281,7 +281,7 @@ agrouter debug: stage model: pooled choice b, confidence 0.550, top [b 0.550]
 		assert.Equal(t, `agrouter debug: doc 1/2: score 8.250, evidence 0.900, confidence 0.800, tokens: estimated 4000, provider reported 4100
 agrouter debug: doc 2/2: score 1.000, evidence 0.100, confidence 0.200, tokens: estimated 50, provider reported unknown
 agrouter debug: project complexity: 6.9
-agrouter debug: classifier failed: boom; running made-up with the caller's fixed values
+agrouter debug: classifier failed: boom; running made-up with the native values and the child's defaults
 `, buf.String())
 	})
 

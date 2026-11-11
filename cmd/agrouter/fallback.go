@@ -14,7 +14,7 @@ import (
 // Sources of an effective exec value.
 const (
 	sourceRouter          = "router"                 // agrouter chose it: the classifier, or the one option left
-	sourceCaller          = "caller"                 // --model or --effort fixed it
+	sourceNative          = "native"                 // a native model or effort argument fixed it
 	sourceVerifiedDefault = "verified_child_default" // left to the child, whose probe reported its default
 	sourceUnknownDefault  = "child_default_unknown"  // left to the child, whose default is not known
 )
@@ -118,13 +118,13 @@ func (a *app) execSelection(cli config.CLI, req *args.Request, d routed) (select
 	return s, nil
 }
 
-// effective is a value's effective form: chosen (by the caller when fixed is set, else by agrouter),
+// effective is a value's effective form: chosen (natively when fixed is set, else by agrouter),
 // or the default reported by the probe in agrouter's configured context.
 // why is the reason for a default that is not reported, defaultNotReported when empty.
 func effective(chosen *string, fixed string, def *string, why string) *effectiveValueJSON {
 	switch {
 	case chosen != nil && fixed != "":
-		return &effectiveValueJSON{Value: chosen, Source: sourceCaller}
+		return &effectiveValueJSON{Value: chosen, Source: sourceNative}
 	case chosen != nil:
 		return &effectiveValueJSON{Value: chosen, Source: sourceRouter}
 	case def != nil:

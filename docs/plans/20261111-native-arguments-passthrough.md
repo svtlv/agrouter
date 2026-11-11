@@ -399,11 +399,11 @@ Compatibility notes:
 - Modify: `cmd/agrouter/debug.go`
 - Modify: `cmd/agrouter/fallback_test.go`, `cmd/agrouter/debug_test.go`, `cmd/agrouter/app_test.go`
 
-- [ ] rename `sourceCaller` (`caller`) to `sourceNative` (`native`) and update its comment
-- [ ] reword the `d.Undecided` debug line to "native values and the child's defaults"
-- [ ] tests: the selection line shows native values with source `native` on success and on classifier failure; routed values keep `router`; unknown native model leaves effort `delegated`
-- [ ] tests: no native token text other than the resolved model/effort appears on stderr, in the console log or in debug output
-- [ ] run `make test` - must pass before task 7
+- [x] rename `sourceCaller` (`caller`) to `sourceNative` (`native`) and update its comment
+- [x] reword the `d.Undecided` debug line to "native values and the child's defaults"
+- [x] tests: the selection line shows native values with source `native` on success and on classifier failure; routed values keep `router`; unknown native model leaves effort `delegated`
+- [x] tests: no native token text other than the resolved model/effort appears on stderr, in the console log or in debug output
+- [x] run `make test` - must pass before task 7
 
 ### Task 7: End-to-end shapes
 
