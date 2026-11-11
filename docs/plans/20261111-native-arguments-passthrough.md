@@ -1,4 +1,4 @@
-# Pass Native Arguments Through Unchanged
+# Native Model and Effort Overrides, With or Without a Provider
 
 ## Overview
 
@@ -6,43 +6,54 @@ Ralphex picks a model and effort per phase (`task_model`, `review_model`, `plan_
 them as native flags after agrouter's `--`. Today `pkg/args/native.go` strips those flags and replaces
 them with agrouter's routed choice, so `review_model = opus:medium` still runs Opus at xhigh.
 
-After this change, everything after agrouter's first `--` reaches the chosen CLI exactly as given.
-Agrouter emits its routed model/effort first, so a native selection later in argv overrides it under
-the CLI's own rules. Agrouter no longer has `--model`/`-m`/`--effort` options in either mode; routing
-always chooses both.
+After this change:
+
+- everything after agrouter's first `--` reaches the chosen CLI exactly as given (never stripped or rewritten);
+- agrouter recognizes a native model/effort by each CLI's **own** `model_args`/`effort_args` templates
+  from config, and resolves it against the catalog (`[model.*]` names and aliases, `[effort.*]`);
+- a natively set field is not routed (no classifier call for that stage) and not generated again, so
+  the child gets one model flag and one effort flag; an unset field is routed and generated, so
+  model-only and effort-only overrides both work;
+- exec no longer needs a provider: `agrouter exec "fix bug" -- ...` lets the native args imply the CLI,
+  or the router choose it. `exec <cli>` or `exec --cli <cli>` still pins it;
+- `--model`/`-m`/`--effort` are no longer agrouter options in either mode. Decision mode keeps
+  rejecting `--`, so it pins only through `--cli`.
 
 Source: backlog item `docs/backlog/ralphex-model-effort-overrides-discarded.md` (deleted in the last task).
+By user decision this plan departs from the backlog's "never inspect native args": native args are read
+for model/effort only, through config templates, and never modified. Anything wrong after `--` is the
+caller's problem; the child validates it.
 
 ## Context (from discovery)
 
-- `pkg/args/native.go`: `nativeOptions` and `flagValue` strip reserved spellings; `CheckSeparator` stays.
-- `pkg/args/build.go`: argv order today is native options, then generated selections, then the child's `--` tail.
-- `pkg/args/redact.go`: redacts two raw ranges (`rawAt`, `tailAt`); becomes one.
-- `pkg/args/request.go`: `Request.Model`/`Request.Effort` fields (removed).
-- `cmd/agrouter/flags.go`: `Model`/`Effort` go-flags options and help text.
-- `pkg/router/eligibility.go`, `router.go`, `stage.go`, `question.go`: `--model`/`--effort` filters,
-  `ModelPassthrough`/`EffortPassthrough`, caller values in `cannotDecide`, passthrough question text.
-- `pkg/router/testdata/request_{model,effort}_passthrough.json`: goldens for removed paths.
-- `pkg/catalog/catalog.go`: `LookupModel`, used only by `filterModel`.
-- `cmd/agrouter/app.go`: `dropUnpassableEffort`, `routed.effortDropped` and the `effort_not_passable`
-  null reason (only a caller `--effort` reaches them).
-- `pkg/router/pool.go`: chunked stage questions take `el.effort`.
-- `cmd/agrouter/fallback.go`: `sourceCaller`, `effective(..., fixed, ...)`, fallback warning.
-- `cmd/agrouter/reason.go`: `delegated` null reason (passthrough-only once constraints go).
-- `cmd/agrouter/debug.go`: passthrough debug lines.
+- `pkg/args/native.go`: `nativeOptions`/`flagValue` strip reserved spellings (replaced); `CheckSeparator` stays.
+- `pkg/args/build.go`: argv today is native options, then generated selections, then the child's `--` tail.
+  `Choice` with an empty `Model`/`Effort` already emits nothing for that field.
+- `pkg/args/redact.go`: two raw ranges (`rawAt`, `tailAt`); becomes one.
+- `pkg/args/request.go`: `Request.Model`/`Request.Effort` (replaced by per-CLI native selections).
+- `cmd/agrouter/flags.go`: `execOperand` requires the CLI right after `exec`; `--cli` in exec must equal
+  it; `Model`/`Effort` options; help text.
+- `cmd/agrouter/app.go` `route`: exec resolves one `execCLI`, runs `CheckSeparator` and one preflight
+  (`startPreflight`/`applyPreflight` in `cmd/agrouter/readiness.go`) beside capture, then `router.Eligible`.
+- `cmd/agrouter/fallback.go` `execSelection`: delegated-model check uses the single preflight report.
+- `pkg/router/eligibility.go`: `filterCLI`, `filterModel`, `filterEffort`, `ModelPassthrough`,
+  `EffortPassthrough` (reused, made per CLI); `router.go` `cannotDecide` already exits with
+  `ErrCannotDecide` when more than one CLI is left.
+- `pkg/catalog/catalog.go`: `LookupModel` (name or alias; aliases are unique across all models).
+- `cmd/agrouter/app.go`: `dropUnpassableEffort`, `routed.effortDropped` (unreachable after this change).
+- `cmd/agrouter/reason.go`, `debug.go`: `caller` source, null reasons, "caller's fixed values" wording.
 - `pkg/config/defaults/config`: argv-order comment; codex `model_args`.
-- Docs: `README.md` (Usage table, Staged routing table, Failure and null reasons, Exec fallback,
-  Invocation descriptors, Migrating, ralphex), `AGENTS.md` and `CLAUDE.md` (identical copies).
+- Docs: `README.md`, `AGENTS.md` and `CLAUDE.md` (identical copies).
+- Ralphex (`~/Projects/ralphex`): Claude executor appends `--model X` / `--effort Y`
+  (`pkg/executor/executor.go:366`); Codex executor appends `-c model="X"` and unquoted
+  `-c model_reasoning_effort=Y` (`pkg/executor/codex.go:196`).
 
-Duplicate-option behavior, checked parse-only with `--help` and an empty `CODEX_HOME` (no inference):
+Duplicate-option behavior, checked parse-only (`--help`, empty `CODEX_HOME`, no inference):
 
 | CLI | Repeated model flag | Repeated effort |
 | --- | --- | --- |
-| Claude 2.1.322 | accepted (commander; later value wins) | accepted |
+| Claude 2.1.322 | accepted (later value wins) | accepted |
 | Codex 0.167.1 | exit 2: `'--model <MODEL>' cannot be used multiple times` (also `--model` + `-m`) | `-c` repeats accepted |
-
-Because of the Codex row, codex's embedded `model_args` moves from `--model` to `-c model="..."`.
-That is a config-only change: a native `-m X` then overrides the config layer instead of duplicating a flag.
 
 ## Development Approach
 
@@ -59,18 +70,20 @@ That is a config-only change: a native `-m X` then overrides the config layer in
 - **CRITICAL: all tests must pass before starting next task** - no exceptions
 - **CRITICAL: update this plan file when scope changes during implementation**
 - run tests after each change (`make test`, `make lint`)
-- backward compatibility: intentionally broken for `--model`/`-m`/`--effort` (rejected with a migration
-  hint); everything else stays compatible
+- backward compatibility: `exec <cli> ...` keeps working unchanged; `--model`/`-m`/`--effort` before
+  `--` are intentionally rejected with a migration hint
 
 ## Testing Strategy
 
 - **unit tests**: required for every task, table-driven with testify.
-- **end-to-end**: `cmd/agrouter` tests with the test binary as fake CLI (`GO_WANT_HELPER_PROCESS=1`),
-  recording exact argv and stdin; classifier is an `httptest` server or the moq mock. No live inference.
-- Synthetic catalogs and descriptors only; do not pin the shipped codex `model_args` in tests
-  except through the existing "embedded config loads and validates" smoke test.
-- Router goldens: delete the two passthrough goldens; `go test ./pkg/router -update` must not change
-  the remaining ones. Classifier wire goldens are untouched.
+- **end-to-end**: `cmd/agrouter` tests with the test binary as fake CLI (`GO_WANT_HELPER_PROCESS=1`)
+  recording exact argv and stdin; the classifier is an `httptest` server or the moq mock, so tests can
+  count classifier requests per stage. Readiness uses the existing fake-peer fixtures. No live inference.
+- Synthetic catalogs with two CLIs: a Claude-like one (`--model {model}`, `--effort {effort}`) and a
+  codex-like one (`-c model="{model}"`, `-c model_reasoning_effort="{effort}"`). Do not pin the shipped
+  codex `model_args` beyond the embedded-config smoke test.
+- Router goldens: existing ones stay byte-identical (`go test ./pkg/router -update` produces no diff);
+  classifier wire goldens are untouched.
 - No UI e2e suite in this project.
 
 ## Progress Tracking
@@ -84,91 +97,165 @@ That is a config-only change: a native `-m X` then overrides the config layer in
 ## Solution Overview
 
 ```text
-agrouter exec claude --doc=AGENTS.md -- --verbose --model opus --effort medium
-        |                  |              |
-        |                  |              +-- native argv: opaque, never read
-        |                  +-- routing only (never in child argv)
-        v
- routing (cli -> model -> effort), no caller constraints
-        |
-        v
-claude -p --model <routed> --effort <routed>  --verbose --model opus --effort medium  [-- prompt]
-       |  exec_args + generated defaults   |  native argv, unchanged          |  prompt_args
+agrouter exec [claude | --cli claude] "fix bug" -- --verbose --model opus
+               \_ optional provider _/            \__ native argv (unchanged) __/
+                         |                                     |
+                         |             each candidate CLI's templates scan it:
+                         |             claude ["--model","{model}"] -> "opus"
+                         |             [model.*] alias "opus" -> claude-opus-5-5 (claude)
+                         v                                     v
+              candidates: pinned CLI, else CLIs the native selection implies, else all
+                         v
+              routing skips stages already set natively (here: cli, model)
+                         v
+claude -p --effort <routed>  --verbose --model opus  [-- prompt]
 ```
 
-**Note:** agrouter still routes and emits its own model/effort, but only as defaults placed before
-the caller's native arguments. The child CLI sees both and applies its own rule (Claude: the later
-value wins), so the native `opus`/`medium` take effect. Agrouter never looks inside the native part.
+**Note:** without a provider, `--model opus` matches only Claude's template and resolves to a Claude
+model, so the CLI and model stages are skipped and only the effort stage asks the classifier. With no
+recognizable native selection, the router picks the CLI, model and effort, and the native args go to
+whichever CLI wins.
 
-Key decisions (from planning):
+Key decisions:
 
 | Decision | Choice |
 | --- | --- |
-| Native argv | passed unchanged: no stripping, validation, alias mapping or inspection |
-| Argv order | `command + exec_args + model_args + effort_args + native argv + prompt_args` |
-| `--model`/`-m`/`--effort` | removed in **both** modes; rejected (exit 2) with a migration hint |
-| Routing | always classifies model and effort; nothing in native argv constrains it |
-| Selection line | keeps the routed `cli`/`model`/`effort`; adds a fixed note when native args are present |
-| Codex model override | codex `model_args` becomes `["-c", "model=\"{model}\""]` so native `-m` overrides without a duplicate-flag error |
+| Provider in exec | operand after `exec` or `--cli`; both must agree (else exit 2); neither: decided |
+| Operand vs prompt | the token right after `exec` is the CLI only when it names a configured CLI; otherwise it is the positional prompt |
+| Native argv | passed unchanged to the chosen CLI; read-only scan for model/effort |
+| Detection | each candidate CLI's own `model_args`/`effort_args` templates; no hardcoded flags |
+| Value resolution | that CLI's catalog `[model.*]` name/alias and `[effort.*]`; unknown values pass through |
+| Argv | `command + exec_args + generated (unset fields only) + native argv + prompt_args` |
+| Classifier fails, more than one CLI left | exit 2, nothing started (as decision mode today) |
+| Readiness without a provider | probe every candidate CLI; route over what can run now |
+| `--model`/`-m`/`--effort` | rejected in both modes (exit 2, migration hint) |
+| Decision mode | keeps rejecting `--`; pins only with `--cli` |
+| Codex model template | `["-c", "model=\"{model}\""]`: ralphex's spelling, and avoids Codex's duplicate-`--model` error |
 
 ## Technical Details
+
+### Exec command line (`cmd/agrouter/flags.go`)
+
+| Command | Provider |
+| --- | --- |
+| `agrouter exec claude "fix" -- …` | claude (operand) |
+| `agrouter exec --cli claude "fix" -- …` | claude (`--cli`) |
+| `agrouter exec claude --cli codex …` | exit 2: conflict |
+| `agrouter exec "fix bug" -- …` | decided (native or router) |
+| `agrouter exec --doc=AGENTS.md -- …` (prompt on stdin) | decided |
+| `agrouter exec -p claude` | decided; prompt "claude" |
+
+`parseArgs` keeps the token right after `exec` as a candidate operand when it does not start with `-`,
+and lets go-flags collect positionals. After config load, the candidate is the CLI if it names a
+configured `[cli.*]` (a disabled one stays exit 2, as today); otherwise it is the positional prompt.
+"More than one positional argument" is checked after that resolution. `--cli` in exec now pins the
+provider; `AGROUTER_CLI` stays ignored.
+
+`Model`/`Effort` stay in `flagSet` as `hidden:"true"` options so go-flags recognizes every spelling
+(`--model X`, `--model=X`, `-m X`, `-mX`, `--effort X`); `flagCounts.check` returns a fixed usage error
+(exit 2) in both modes:
+
+```text
+agrouter: --model/-m is not an agrouter option: routing chooses the model; with exec, pass the
+          CLI's own model flag after "--" (agrouter exec [CLI] ... -- --model X)
+```
+
+`--effort` gets its own fixed message. The shared callback cannot tell `-m` from `--model`, so the
+message names both.
+
+### Detection (`pkg/args/native.go`)
+
+`NativeSelection(cli config.CLI, raw []string) Selection` (`Selection{Model, Effort string}`) scans
+`raw` up to the child's own `--` and matches that CLI's templates. The last match wins.
+
+| Form | Template | Native tokens matched |
+| --- | --- | --- |
+| exact sequence | `["--model", "{model}"]` | `--model opus` |
+| attached long flag (two-token template, first token `--…`) | `["--model", "{model}"]` | `--model=opus` |
+| literal prefix/suffix around the placeholder | `["-c", "model_reasoning_effort=\"{effort}\""]` | `-c model_reasoning_effort="high"` |
+| quotes around the placeholder optional | same | `-c model_reasoning_effort=high` (ralphex) |
+
+**Note:** every spelling comes from the CLI's own template; the only generic rules are the `=` form of a
+long flag and optional matching quotes. Other spellings (for example Codex's `-m` alias) are not
+recognized: they pass through and the CLI resolves the duplicate itself.
+
+Empty values and a template missing its value token (`--model` last) are no selection; the tokens
+still reach the child unchanged.
+
+### Candidates and routing (`pkg/router/eligibility.go`)
+
+`Request.Model`/`Request.Effort` become `Request.Native map[string]args.Selection` (CLI name to its
+detected selection), filled in `cmd/agrouter` for every enabled CLI, or only the pinned one.
+`Eligible` applies, in order:
+
+1. `--cli`/operand pin, as today.
+2. Native CLI filter: if any CLI detected a selection, keep only those CLIs; else keep all.
+3. Per kept CLI, the existing model and effort filters with that CLI's own values (catalog model,
+   passthrough outside the catalog, effort in or outside the catalog). A catalog model belongs to one
+   CLI (aliases are unique), so it pins that CLI.
+4. A catalog model for CLI A wins over an effort-only detection for CLI B: B is dropped. Its tokens
+   still reach A unchanged; that is the caller's problem.
+
+Routing cases (one CLI left, pinned or implied):
+
+| Native model | Native effort | Classifier asked | Generated args |
+| --- | --- | --- | --- |
+| catalog model | catalog effort | nothing | none |
+| catalog model | none | effort stage among that model's efforts (skipped if one) | effort |
+| none | catalog effort | model stage among models with that effort (skipped if one) | model |
+| none | none | model and effort stages | model and effort |
+| outside catalog | any | nothing | none; an unset effort is left to the child (`delegated`) |
+| none | outside catalog | model stage among all models (effort passthrough) | model |
+| catalog model | effort that model lacks | nothing (passthrough) | none; the child validates |
+
+Without a provider and several CLIs left (no selection, or the same template matching several CLIs),
+the cli stage runs first, then the rows above apply to the chosen CLI. If the classifier fails with more
+than one CLI left, exec exits 2 with the existing cannot-decide line and starts nothing. With one CLI
+left, the existing fallback (child defaults plus native values) applies.
+
+`cmd/agrouter` builds `Choice` with empty `Model`/`Effort` for natively set fields of the chosen CLI,
+so `Build` emits nothing for them; the selection line reports the resolved native value.
+
+### Readiness without a provider (`cmd/agrouter/readiness.go`, `app.go`)
+
+```text
+eligible CLIs ──┬── probe claude ──┐
+                └── probe codex ───┴── apply each report to its CLI's options ── route over what is left
+```
+
+**Note:** each candidate CLI is probed in parallel, beside prompt capture, exactly as the single exec
+CLI is today. A blocked CLI just drops out of routing.
+
+- `startPreflight` runs per candidate CLI under the shared deadline; `applyPreflight` excludes each
+  CLI's blocked options from the eligibility.
+- Only when every candidate is blocked does exec stop: it prints each CLI's block line in config order
+  (quota lines keep their own `error_prefix`/`error_message`) and uses the first CLI's exit code.
+- `execSelection`'s delegated-model check uses the chosen CLI's report.
+- `CheckSeparator` runs for the pinned CLI before routing, and for a decided CLI after routing, before
+  the child starts (exit 2).
 
 ### Argv assembly (`pkg/args/build.go`)
 
 ```text
 before: cmd exec_args [native opts] model_args effort_args [native "--" tail] prompt_args
-after:  cmd exec_args model_args effort_args [entire native argv, as given] prompt_args
+after:  cmd exec_args [model_args] [effort_args] [entire native argv, as given] prompt_args
 ```
 
-**Note:** the native sequence is no longer split around the child's own `--`; it moves as one block
-after the generated defaults.
+**Note:** generated args appear only for fields the native args did not set, and the native sequence
+moves as one block, including the child's own `--`.
 
-- `Result` keeps `promptAt`, one `rawAt`/`rawLen` range; `tailAt`/`tailLen` go away.
-- `Redacted()` prints the single native block as `<N raw argument(s)>`.
-- `CheckSeparator` stays as an assembly guard (native `--` plus `prompt_args` with `--` and a
-  command-line prompt is exit 2). It never inspects option values.
+`Result` keeps `promptAt` and one `rawAt`/`rawLen`; `Redacted()` prints one `<N raw argument(s)>`.
 
-### Option removal (`cmd/agrouter/flags.go`)
+### Reporting
 
-Keep `Model`/`Effort` in `flagSet` as `hidden:"true"` options so go-flags still recognizes every
-spelling (`--model X`, `--model=X`, `-m X`, `-mX`, `--effort X`). Their funcs only record that they were
-seen; `flagCounts.check` then returns a usage error (exit 2):
-
-```text
-agrouter: --model/-m is not an agrouter option: routing chooses the model; with exec, pass the
-          child's own model flag after "--" (agrouter exec CLI ... -- --model X)
-```
-
-The message is fixed and names `--model`/`-m` together, since the shared go-flags callback only gets
-the value. `--effort` has its own fixed message. A hidden option keeps the go-flags error
-from turning into a generic "unknown flag". Only tokens before agrouter's `--` are parsed, so native
-`--model` is never seen here.
-
-### Routing (`pkg/router`)
-
-`Eligible` keeps only the `--cli` filter. `ModelPassthrough`, `EffortPassthrough`, `filterModel`,
-`filterEffort`, the `passed` effort in `optionEffort`, caller model/effort in `cannotDecide`, the
-passthrough branch of `modelLabel`, and passthrough-only question text (`descModelPassed`, the
-`effortDefault` branch of `noEffortLabel`) are removed when unused. `catalog.LookupModel` is removed
-if nothing else uses it.
-
-### Reporting (`cmd/agrouter/fallback.go`, `reason.go`)
-
-- `effective()` loses its `fixed` parameter and `sourceCaller`; sources are `router`,
-  `verified_child_default` and `child_default_unknown`.
-- `delegated` null reason: once passthrough is gone, a successful route always sets the model and
-  either sets the effort or reports `no_applicable_effort`. Confirm it is unreachable, then remove it
-  and its README row.
-- Exec selection line: when `len(req.Raw) > 0`, add a fixed field next to the routed values:
-
-```json
-{"cli":"claude","model":"opus","effort":"xhigh",
- "native_override":{"code":"not_inspected","message":"Native arguments after \"--\" are passed unchanged and may override this model and effort"}}
-```
-
-- The fallback warning appends `; native arguments after "--" may override them` when native args are
-  present. Readiness probes and their defaults still describe agrouter's configured context.
-- No native token value is ever logged; only this fixed text.
+- The selection line's `cli`/`model`/`effort` are what the child runs with: native when set, routed otherwise.
+- The `caller` effective source becomes `native`. A CLI pinned by `exec <cli>`/`--cli` is unchanged in
+  reporting; a CLI implied by a native model is reported like one implied by `--model` today.
+- `dropUnpassableEffort`, `routed.effortDropped` and `effort_not_passable` are removed: a native effort
+  is only detected through `effort_args`.
+- The debug line "running %s with the caller's fixed values" becomes "… with the native values and the
+  child's defaults".
+- Native token values are never logged beyond the resolved model/effort in the selection line.
 
 ### Codex descriptor (`pkg/config/defaults/config`)
 
@@ -177,150 +264,190 @@ model_args  = ["-c", "model=\"{model}\""]
 effort_args = ["-c", "model_reasoning_effort=\"{effort}\""]
 ```
 
-**Note:** both routed defaults now sit in Codex's `-c` config layer. A native `-m X` sets the CLI
-flag, which Codex applies over config, and a later native `-c model_reasoning_effort=...` replaces
-the earlier `-c`. Task 6 confirms both without inference.
+**Note:** this is ralphex's own Codex spelling, so ralphex's `-c model="X"` is detected and the routed
+model is not emitted. It also keeps Claude's `--model X` from matching Codex, so a provider-less
+`--model opus` implies Claude only. An unrecognized native `-m X` still runs: the flag applies over the
+`-c` config layer instead of tripping Codex's duplicate-`--model` error.
 
-### Ralphex shapes (Claude)
+### Ralphex shapes
 
-| Ralphex setting | Native tokens | Child result |
-| --- | --- | --- |
-| `opus:medium` | `--model opus --effort medium` | both override routed values |
-| `opus:` / `opus` | `--model opus` | model overridden; routed effort kept |
-| `:medium` | `--effort medium` | routed model kept; effort overridden |
-| `:` | none | routed model and effort |
+| Ralphex setting | Claude native tokens | Codex native tokens | Classifier asked | Generated |
+| --- | --- | --- | --- | --- |
+| `opus:medium` | `--model opus --effort medium` | `-c model="m" -c model_reasoning_effort=medium` | nothing | none |
+| `opus:` / `opus` | `--model opus` | `-c model="m"` | effort stage | effort |
+| `:medium` | `--effort medium` | `-c model_reasoning_effort=medium` | model stage | model |
+| `:` | none | none | model and effort | both |
+
+Ralphex configs keep `exec claude …` / `exec codex …`, so these rows run with a pinned provider.
+
+Exact native argv ralphex sends (checked in `~/Projects/ralphex` at v1.7.0-windows.3-9), used as e2e fixtures:
+
+```text
+claude: claude_args after "--" ... [--model M] [--effort E] --print          (prompt on stdin)
+codex:  [-c features.multi_agent=true -c agents.<name>.description="..."] [-c project_doc_fallback_filenames=["CLAUDE.md"]]
+        [--dangerously-bypass-approvals-and-sandbox] --sandbox S [-c model="M"] [-c model_reasoning_effort=E]
+        -c stream_idle_timeout_ms=N [-c project_doc="P"]                     (prompt on stdin; wrapper drops "exec")
+```
+
+**Note:** ralphex never sends a `--` of its own, so the whole sequence is scanned. `--print` duplicates
+Claude's `-p` from `exec_args`, which Claude accepts today. Other `-c` keys must not match the model or
+effort templates (`model_x`-style lookalikes are covered in Task 1).
+
+Compatibility notes:
+
+- Ralphex's Codex defaults (`codex_model`, `codex_reasoning_effort`) are non-empty, so a phase with an
+  empty spec still sends `-c model=` and `-c model_reasoning_effort=`. Today agrouter's generated
+  `--model` beats that native `-c model=`. After this change the native values win and routing is
+  skipped. To keep routing in Codex mode, set both to empty (the README's existing advice, now required).
+- Ralphex strips `--model`/`--effort` from `claude_args` only when a phase sets them. A workaround that
+  pins `--model`/`--effort` before agrouter's `--` therefore reaches agrouter in phases without a spec, and
+  is exit 2 after this change. Remove it in the same step as upgrading.
+- Full model IDs (`claude-sonnet-4-5-20250929`) and efforts missing from the catalog (for example
+  `max`) take the passthrough rows: they run as given, without the classifier for that field.
 
 ## What Goes Where
 
 - **Implementation Steps**: code, tests, embedded config and docs in this repo.
-- **Post-Completion**: user-owned ralphex/agrouter configs, reinstalling the binary, the live ralphex check.
+- **Post-Completion**: user-owned ralphex/agrouter configs, reinstalling the binary, live checks.
 
 ## Implementation Steps
 
-### Task 1: Pass native argv unchanged after generated defaults
+### Task 1: Detect native model/effort from a CLI's templates
+
+**Files:**
+- Modify: `pkg/args/native.go`
+- Modify: `pkg/args/native_test.go`
+
+- [ ] replace `nativeOptions`/`flagValue` with `Selection` and `NativeSelection(cli, raw)` per the detection table; keep `CheckSeparator`
+- [ ] match exact template sequences, the `--flag=value` form of a two-token long-flag template, and literal prefix/suffix tokens with optional matching quotes around the placeholder
+- [ ] stop at the child's own `--`; last match wins; empty values and a missing trailing value are no selection
+- [ ] tests with synthetic Claude-like and codex-like templates: quoted and unquoted, `=` form, repeats (last wins), tokens after the child's `--` ignored
+- [ ] negative tests: alias spellings (`-m x`), lookalike prefixes (`--modelx`, `-c model_x=1`), empty and missing values, CLI without `effort_args`
+- [ ] run `make test` - must pass before task 2
+
+### Task 2: Build argv with native args unchanged after generated args
 
 **Files:**
 - Modify: `pkg/args/build.go`
-- Modify: `pkg/args/native.go`
 - Modify: `pkg/args/redact.go`
-- Modify: `pkg/args/request.go`
 - Modify: `pkg/args/build_test.go`
-- Modify: `pkg/args/native_test.go`
 - Modify: `cmd/agrouter/app_test.go` (native-stripping expectations, e.g. near line 1374)
 - Modify: `cmd/agrouter/debug_test.go` (redacted argv order, e.g. near line 67)
 
-- [ ] delete `nativeOptions` and `flagValue` from `pkg/args/native.go`; keep `CheckSeparator` and reword its comment as an assembly guard
-- [ ] rewrite `Build` in `pkg/args/build.go`: command, exec_args, model_args, effort_args, then all of `req.Raw`, then prompt_args; drop `tailAt`/`tailLen`
-- [ ] update `Redacted` in `pkg/args/redact.go` for the single raw range; update the `Raw` field comment in `request.go`
-- [ ] update `build_test.go`: generated defaults precede the whole native sequence, including a child `--` and its tokens
-- [ ] add passthrough cases: empty tokens, repeated/attached/equals forms (`--model=x`, `-mx`, `-m=x`), a flag with a missing value, later separators, codex-style `-c key="v"`, aliases, `-m` as a separate value; each must come out byte-identical and in order
-- [ ] keep `native_test.go` for `CheckSeparator` (prompt after `--` with native `--` rejected; stdin prompt allowed)
+- [ ] rewrite `Build`: command, exec_args, model_args (when `choice.Model` set), effort_args (when `choice.Effort` set), all of `req.Raw`, prompt_args; drop `tailAt`/`tailLen`
+- [ ] update `Redacted` for the single raw range
+- [ ] tests: every native token byte-identical and in order (empty tokens, repeats, attached forms, missing values, later separators, codex `-c` expressions, aliases); generated args precede the whole native block
 - [ ] update redaction tests (one `<N raw argument(s)>` block, prompt still `<prompt>`)
-- [ ] update `cmd/agrouter` tests that expect native model/effort to be stripped or the old argv order (`app_test.go`, `debug_test.go`); they now expect the native tokens verbatim after the generated defaults
-- [ ] run `make test` - must pass before task 2
-
-### Task 2: Remove model/effort constraints from routing
-
-**Files:**
-- Modify: `pkg/router/eligibility.go`
-- Modify: `pkg/router/router.go`
-- Modify: `pkg/router/stage.go`
-- Modify: `pkg/router/question.go`
-- Modify: `pkg/router/pool.go`
-- Delete: `pkg/router/testdata/request_model_passthrough.json`
-- Delete: `pkg/router/testdata/request_effort_passthrough.json`
-- Modify: `pkg/router/router_test.go` (and any eligibility/question tests)
-- Modify: `pkg/catalog/catalog.go`, `pkg/catalog/catalog_test.go` (if `LookupModel` becomes unused)
-- Modify: `cmd/agrouter/debug.go`, `cmd/agrouter/debug_test.go`
-
-- [ ] reduce `Eligible` to the `--cli` filter; remove `filterModel`, `filterEffort`, `ModelPassthrough`, `EffortPassthrough` and the `effort` field
-- [ ] drop the effort argument from `stageQuestion` and update both callers, including the chunked path in `pool.go` (`el.effort`)
-- [ ] remove the caller model/effort from `cannotDecide` and its doc comment; simplify `optionEffort` and `modelLabel`
-- [ ] remove passthrough-only question text in `question.go` (check `descModelPassed`, `noEffortLabel` and `effortDefault` users first)
-- [ ] remove `catalog.LookupModel` if it has no remaining users
-- [ ] remove the passthrough lines from `cmd/agrouter/debug.go`; reword the `d.Undecided` line ("running %s with the caller's fixed values") to say it keeps choices from completed stages and leaves the rest to the child's defaults; update its test
-- [ ] keep `request_stage_effort.json` byte-identical: the test reached the effort stage through `Request.Model`, so change the harness to record every request and assert on the effort-stage one (synthetic catalog with one CLI and one model if needed)
-- [ ] delete the two passthrough goldens and their test cases; run `go test ./pkg/router -update` and confirm no other golden changes
-- [ ] update router tests: cannot-decide with one CLI left uses only the classifier's earlier choices; staged routing always asks model and effort when more than one candidate is left
+- [ ] update `cmd/agrouter` tests that expect stripping or the old order (`app_test.go`, `debug_test.go`)
 - [ ] run `make test` - must pass before task 3
 
-### Task 3: Reject `--model`/`-m`/`--effort` in both modes
+### Task 3: Per-CLI native constraints in eligibility
+
+**Files:**
+- Modify: `pkg/args/request.go`
+- Modify: `pkg/router/eligibility.go`
+- Modify: `pkg/router/router.go`
+- Modify: `pkg/router/router_test.go` (and eligibility tests)
+- Modify: `cmd/agrouter/app.go` (temporary wiring from the existing `--model`/`--effort` values until Task 4)
+
+- [ ] replace `Request.Model`/`Request.Effort` with `Request.Native map[string]args.Selection`
+- [ ] `Eligible`: pin filter, native CLI filter, then per-CLI model/effort filters reusing `filterModel`/`filterEffort` logic; a catalog model of CLI A drops an effort-only CLI B
+- [ ] make `cannotDecide` keep the native values of the one CLI left; reword drop/warning labels to native wording (`native model X`)
+- [ ] keep `ModelPassthrough`/`EffortPassthrough` semantics per CLI; existing goldens stay byte-identical (`go test ./pkg/router -update` gives no diff)
+- [ ] tests for every row of the routing cases table, plus multi-CLI: no selection keeps all CLIs; `--model opus` with a Claude-only template pins Claude; a template shared by two CLIs keeps both for the cli stage; conflicting model/effort detections across CLIs keep the model's CLI
+- [ ] run `make test` - must pass before task 4
+
+### Task 4: Exec command line: optional provider, `--cli` pin, removed options
 
 **Files:**
 - Modify: `cmd/agrouter/flags.go`
-- Modify: `pkg/args/request.go`
 - Modify: `cmd/agrouter/app.go`
 - Modify: `cmd/agrouter/reason.go`
 - Modify: `cmd/agrouter/flags_test.go`, `cmd/agrouter/command_test.go`, `cmd/agrouter/app_test.go`
 - Modify: `cmd/agrouter/fallback_test.go`, `cmd/agrouter/reason_test.go`, `cmd/agrouter/readiness_test.go`, `cmd/agrouter/debug_test.go`
-- Modify: `cmd/agrouter/app_windows_test.go` (build-tagged; check it compiles with `GOOS=windows go vet ./cmd/agrouter`)
+- Modify: `cmd/agrouter/app_windows_test.go` (build-tagged; check with `GOOS=windows go vet ./cmd/agrouter`)
 
-- [ ] mark `Model`/`Effort` in `flagSet` `hidden:"true"`; their funcs set a seen flag in `flagCounts`; `check` returns a fixed migration-hint usage error (exit 2) in both modes, one message naming `--model`/`-m` and one for `--effort` (the shared callback cannot tell `-m` from `--model`)
-- [ ] remove `Request.Model` and `Request.Effort`; fix every compile site
-- [ ] remove `dropUnpassableEffort`, `routed.effortDropped`, its `selectionOutput` branch and `nullEffortDropped` (`effort_not_passable`), with their tests
-- [ ] migrate every `cmd/agrouter` test fixture that passes `--model`/`-m`/`--effort` before `--` (fallback, reason, readiness, debug, command, app and `app_windows_test.go`): drop the option or move the case to the native block, so each test still covers its own concern (e.g. the Windows start failure keeps exit 127)
-- [ ] update `helpText`: drop the "replaces native --model/-m and --effort" sentence; say native options pass unchanged after the routed defaults
-- [ ] test rejection for `--model X`, `--model=X`, `-m X`, `-mX`, `--effort X` in decision and exec mode (exit 2, hint text, no classifier request, no child start)
-- [ ] test that `--model`/`--effort` after agrouter's `--` are not rejected and reach the fake child verbatim
-- [ ] test that `--help` does not list the hidden options
-- [ ] run `make test` - must pass before task 4
+- [ ] `execOperand` keeps a candidate operand instead of failing; after config load it becomes the CLI if it names a configured CLI (disabled: exit 2), else the positional prompt; recheck "more than one positional argument" afterwards
+- [ ] `--cli` in exec pins the provider; operand and `--cli` disagreeing stays exit 2
+- [ ] mark `Model`/`Effort` `hidden:"true"`; `check` returns the fixed migration-hint errors (exit 2) in both modes
+- [ ] in exec, fill `req.Native` from `args.NativeSelection` for the pinned CLI or every enabled CLI; build `Choice` without natively set fields
+- [ ] remove `dropUnpassableEffort`, `routed.effortDropped`, its `selectionOutput` branch and `nullEffortDropped`, with their tests
+- [ ] update `helpText` and `parser.Usage` (`exec [CLI] ...`; only the provider is pinned by agrouter; model/effort go after `--` as the CLI's own flags)
+- [ ] migrate every `cmd/agrouter` fixture that passes `--model`/`-m`/`--effort` before `--` to native flags after `--`, so each test keeps covering its concern (e.g. the Windows start failure keeps exit 127)
+- [ ] tests: every row of the exec command-line table; the rejection for every spelling in both modes (exit 2, hint, no classifier request, no child start); decision mode still rejects `--`; `--help` hides the options
+- [ ] run `make test` - must pass before task 5
 
-### Task 4: Report routed defaults and the native override note
+### Task 5: Readiness and separator checks without a provider
+
+**Files:**
+- Modify: `cmd/agrouter/readiness.go`
+- Modify: `cmd/agrouter/app.go`
+- Modify: `cmd/agrouter/fallback.go`
+- Modify: `cmd/agrouter/readiness_test.go`, `cmd/agrouter/app_test.go`
+
+- [ ] start one preflight per candidate CLI (pinned, or every CLI left after the native filter) under the shared deadline; wait for all on every return path
+- [ ] apply each report to its CLI's options; stop only when every candidate is blocked, printing each block line in config order with the first CLI's exit code
+- [ ] `execSelection` uses the chosen CLI's report for the delegated-model check and the readiness summary
+- [ ] run `CheckSeparator` for the pinned CLI before routing, and for a decided CLI after routing, before the child starts
+- [ ] tests with fake-peer fixtures: one of two CLIs quota-blocked routes to the other without asking the cli stage; both blocked prints two lines and exits with the first's code; strict unknown on one CLI; probes stop on early return
+- [ ] run `make test` - must pass before task 6
+
+### Task 6: Report native values
 
 **Files:**
 - Modify: `cmd/agrouter/fallback.go`
-- Modify: `cmd/agrouter/reason.go`
-- Modify: `cmd/agrouter/app.go` (selection JSON)
-- Modify: `cmd/agrouter/fallback_test.go`, `cmd/agrouter/reason_test.go`, `cmd/agrouter/app_test.go`
+- Modify: `cmd/agrouter/debug.go`
+- Modify: `cmd/agrouter/fallback_test.go`, `cmd/agrouter/debug_test.go`, `cmd/agrouter/app_test.go`
 
-- [ ] drop `sourceCaller` and the `fixed` parameter of `effective`
-- [ ] confirm the `delegated` null reason is unreachable after Task 2; remove it, or record here why it stays
-- [ ] add `native_override` (`code: not_inspected`, fixed message) to the exec selection line when `len(req.Raw) > 0`; never in decision mode
-- [ ] append the fixed native note to the fallback warning when native args are present
-- [ ] test the selection line with and without native args, on success and on routing failure (fallback)
-- [ ] test that no native token text appears on stderr, in the console log or in debug output
-- [ ] run `make test` - must pass before task 5
+- [ ] rename `sourceCaller` (`caller`) to `sourceNative` (`native`) and update its comment
+- [ ] reword the `d.Undecided` debug line to "native values and the child's defaults"
+- [ ] tests: the selection line shows native values with source `native` on success and on classifier failure; routed values keep `router`; unknown native model leaves effort `delegated`
+- [ ] tests: no native token text other than the resolved model/effort appears on stderr, in the console log or in debug output
+- [ ] run `make test` - must pass before task 7
 
-### Task 5: End-to-end native passthrough and ralphex shapes
+### Task 7: End-to-end shapes
 
 **Files:**
 - Modify: `cmd/agrouter/app_test.go` (or a new `cmd/agrouter/native_test.go`)
 
-- [ ] with a synthetic catalog and a fake classifier, run exec against the helper-process fake CLI and assert exact argv: generated defaults, then the native block unchanged, then prompt_args
-- [ ] cover the ralphex Claude shapes from Technical Details (`--model opus --effort medium`, model only, effort only, none) for different task/review settings
-- [ ] cover a stdin-only call (ralphex) with native args: stdin replayed byte-identical, no prompt_args emitted
-- [ ] cover classifier failure: native args still in argv, fallback warning carries the native note
-- [ ] cover invalid native args (unknown flag, missing value): agrouter passes them on, and the fake child's exit code is agrouter's exit code
-- [ ] assert that every classifier stage is still asked when native model/effort flags are present (no stage skipped)
-- [ ] run `make test` - must pass before task 6
+- [ ] pinned provider: every row of the ralphex table in both spellings against the helper-process fake CLI, using the exact ralphex argv shapes (Claude with trailing `--print`; Codex with `features.multi_agent`, `--sandbox`, `stream_idle_timeout_ms`, `project_doc` around the model/effort `-c`); assert exact argv and classifier requests per stage
+- [ ] different settings per phase (task `opus:`, review `opus:medium`) produce different argv in two runs
+- [ ] no provider: `exec "fix" -- --model <claude alias>` runs the Claude-like CLI without cli/model stages; `exec "fix" -- --verbose` asks all three stages and passes `--verbose` to the winner; classifier failure with two CLIs left is exit 2 with nothing started
+- [ ] stdin-only call with native args: stdin replayed byte-identical, no prompt_args emitted
+- [ ] invalid native args (unknown flag, missing value, unknown model) reach the fake child; the child's exit code is agrouter's exit code
+- [ ] run `make test` - must pass before task 8
 
-### Task 6: Codex descriptor uses the config layer for the model
+### Task 8: Codex descriptor uses the config layer for the model
 
 **Files:**
 - Modify: `pkg/config/defaults/config`
-- Modify: `pkg/config/config_test.go` (only if the smoke test needs it)
 
-- [ ] change codex `model_args` to `["-c", "model=\"{model}\""]`, with a comment on why (Codex rejects a repeated `--model`)
-- [ ] rewrite the argv-order comment above `[cli.<name>]` to the new order, without the "replaces native" sentence
-- [ ] confirm, parse-only with an empty `CODEX_HOME` and no credentials, that `codex exec -c model="a" -m b --help` and a repeated `-c model_reasoning_effort` both parse (exit 0)
-- [ ] try to confirm that the `-m` flag beats `-c model` without inference, e.g. from the model shown in `codex exec`'s startup header with no credentials. If that is not possible, mark ⚠️ and move it to Post-Completion
-- [ ] run `make test` (embedded config smoke test) - must pass before task 7
+- [ ] change codex `model_args` to `["-c", "model=\"{model}\""]`, with a comment (ralphex's spelling; Codex rejects a repeated `--model`)
+- [ ] rewrite the argv-order comment above `[cli.<name>]`: generated args only for fields the native args did not set, then native args unchanged; templates also define which native spellings are recognized
+- [ ] confirm parse-only with an empty `CODEX_HOME` (no credentials, no inference): `codex exec -c model="a" -m b --help` and a repeated `-c model_reasoning_effort` both exit 0
+- [ ] try to confirm the `-m` flag beats `-c model` without inference (e.g. the model in `codex exec`'s startup header with no credentials); if not possible, mark ⚠️ and keep it in Post-Completion
+- [ ] run `make test` (embedded config smoke test) - must pass before task 9
 
-### Task 7: Verify acceptance criteria
+### Task 9: Verify acceptance criteria
 
-- [ ] every backlog acceptance check is covered: argv order, token preservation, aliases kept, no routing constraint, classifier failure, stdin replay, invalid args reaching the child, child exit code authoritative, removed options rejected, reporting distinguishes routed defaults
-- [ ] `grep` for leftover `nativeOptions`, `ModelPassthrough`, `sourceCaller` and "reserved" wording in code and docs
+- [ ] native argv is never modified; generated args never duplicate a recognized native selection
+- [ ] each routing case asks only the stages it should; model-only and effort-only overrides work, pinned and unpinned
+- [ ] `exec <cli>`, `exec --cli`, provider-less exec and their conflicts behave per the command-line table
+- [ ] removed options are rejected with the hint; decision mode rejects `--`; stdin replay; child exit code authoritative
+- [ ] `grep` for leftover `nativeOptions`, `sourceCaller`, `effortDropped`, `Request.Model`, and "reserved"/"replaces native"/"exec needs the CLI" wording in code and docs
 - [ ] `make test` and `make lint`; also lint `GOOS=linux`, `GOOS=darwin` and `--build-tags=eval` (golangci-lint v2.14.0)
 - [ ] coverage stays at 80%+ per package
 
-### Task 8: [Final] Update documentation
+### Task 10: [Final] Update documentation
 
-- [ ] `README.md` Usage: remove the `-m`/`--model`/`--effort` row; update the `-- native args` row (passed unchanged after routed defaults)
-- [ ] `README.md` Staged routing: remove the `--model`/`--effort` rows from the skip table; drop "implied by `--model`" in Failure and null reasons and Exec fallback; remove the `caller` source, `delegated` and `effort_not_passable` rows
-- [ ] `README.md` Invocation descriptors: new argv formula; replace the reserved-spellings text and examples with passthrough examples (Claude later-wins, Codex `-m` over `-c model`); keep the duplicate-separator paragraph
-- [ ] `README.md` Migrating: add rows for removed `--model`/`-m`/`--effort` and for native selections that now pass through
-- [ ] `README.md` ralphex: use the backlog's example config (`task_model = opus:`, `review_model = opus:medium`), remove the "leave models empty" advice and any temporary pinned flags, and explain the ralphex fallback rule (`review_model` empty falls back to `task_model`, `:` emits nothing)
-- [ ] `AGENTS.md` and `CLAUDE.md` (keep identical): rewrite the Invocation rule, the staged-routing "fixed by `--model`/`--effort`" clause, the "no per-CLI argument mappings" rule and the reserved-spelling sentence in the exit-code rule; update the `pkg/args` layout line
+- [ ] `README.md` Usage: `agrouter exec [<cli>] [options] [prompt] [-- native args...]`; operand-or-prompt rule; `--cli` pins in exec; remove the `-m`/`--model`/`--effort` row; the `-- native args` row says they pass unchanged and the CLI's model/effort flags (per its templates) fix those fields and can imply the CLI
+- [ ] `README.md` Staged routing: skip table rows refer to native model/effort; Failure and null reasons / Exec fallback: native wording, exit 2 when exec cannot decide between CLIs, remove `effort_not_passable`
+- [ ] `README.md` Exec readiness: probing every candidate CLI without a provider, block lines when all are blocked
+- [ ] `README.md` Invocation descriptors: new argv formula; templates double as recognized native spellings (exact, `--flag=value`, optional quotes); unrecognized spellings such as Codex `-m` pass through; keep the duplicate-separator paragraph
+- [ ] `README.md` Migrating: rows for removed `--model`/`-m`/`--effort` and for native selections that are now honored
+- [ ] `README.md` ralphex: the backlog's example config (`task_model = opus:`, `review_model = opus:medium`); Codex `codex_model`/`codex_reasoning_effort` are now honored, so keep them empty to let the classifier route Codex (ralphex's own defaults would otherwise fix both); drop any temporarily pinned flags; explain ralphex's fallback (`review_model` empty falls back to `task_model`, `:` emits nothing)
+- [ ] `README.md` Exit codes: exec cannot-decide with more than one CLI left
+- [ ] `AGENTS.md` and `CLAUDE.md` (identical): rewrite the Invocation rule (operand optional, `--cli` pins in exec, native model/effort recognized by the CLI's templates and never modified), the staged-routing "fixed by `--model`/`--effort`" clause, the "no per-CLI argument mappings" rule, the readiness/exit-code rules and the reserved-spelling sentence; update the `pkg/args` layout line
 - [ ] delete `docs/backlog/ralphex-model-effort-overrides-discarded.md`
 - [ ] move this plan to `docs/plans/completed/`
 
@@ -329,10 +456,13 @@ the earlier `-c`. Task 6 confirms both without inference.
 *Items requiring manual intervention or external systems - no checkboxes, informational only*
 
 **Manual verification:**
-- reinstall (`go install ./cmd/agrouter`), then run one real ralphex review phase with `review_model = opus:medium`. The child should run Opus at medium; check the selection line shows the routed values plus `native_override`.
-- if Task 6 could not confirm Codex flag-over-config precedence without inference, check it once on a cheap Codex run.
+- reinstall (`go install ./cmd/agrouter`), then run one real ralphex review phase with `review_model = opus:medium`:
+  the selection line shows `opus`/`medium` with source `native`, no classifier call is logged, and the child argv holds one `--model` and one `--effort`.
+- one ralphex phase with `task_model = opus:` should log only an effort-stage classifier call.
+- one provider-less run, `agrouter exec "small task"`, should log a cli-stage call and start the chosen CLI.
+- if Task 8 could not confirm Codex flag-over-config precedence without inference, check it once on a cheap Codex run.
 
 **External system updates:**
-- user-owned ralphex config: remove the temporary `--model opus --effort medium` pinned before agrouter's `--`, and set per-phase `task_model`/`review_model`/`plan_model`
+- user-owned ralphex config: remove the temporary `--model opus --effort medium` pinned before agrouter's `--` **in the same step as installing the new agrouter** (otherwise phases without a spec exit 2); keep `codex_model =`/`codex_reasoning_effort =` empty for routed Codex; set per-phase `task_model`/`review_model`/`plan_model` (and `codex_model`/`codex_reasoning_effort` if wanted)
 - user agrouter configs (global and local `.agrouter/config`) that set codex `model_args = ["--model", ...]` explicitly should switch to the `-c model=` form; comment-only global configs refresh automatically
-- any script that passes `--model`/`-m`/`--effort` before agrouter's `--` now gets exit 2 and must move them after `--`
+- any script that passes `--model`/`-m`/`--effort` before agrouter's `--` now gets exit 2 and must move them after `--` as the CLI's own flags
