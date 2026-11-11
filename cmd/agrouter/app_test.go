@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/svtlv/agrouter/cmd/agrouter/mocks"
+	"github.com/svtlv/agrouter/pkg/args"
 	"github.com/svtlv/agrouter/pkg/classifier"
 	"github.com/svtlv/agrouter/pkg/config"
 	"github.com/svtlv/agrouter/pkg/config/defaults"
@@ -429,14 +430,14 @@ func TestApp_RalphexClaudeMode(t *testing.T) {
 	t.Run("model and effort fixed: no Jev call", func(t *testing.T) {
 		e := newEnv(t)
 		e.fakeCommands()
-		r := e.run(slices.Concat([]string{"exec", "claude", "--model", "opus", "--effort", "high", "--"}, native),
-			strings.NewReader(task))
+		fixed := []string{"--model", "opus", "--effort", "high"}
+		r := e.run(slices.Concat([]string{"exec", "claude", "--"}, fixed, native), strings.NewReader(task))
 
 		require.Equal(t, 0, r.code, r.stderr)
 		assert.Equal(t, map[string]any{"cli": "claude", "model": "claude-opus-5-5", "effort": "high"}, selectionLog(t, r.stderr))
 		assert.Empty(t, r.stdout)
 		argv, stdin, _ := e.child()
-		assert.Equal(t, slices.Concat([]string{"-p", "--model", "claude-opus-5-5", "--effort", "high"}, native), argv)
+		assert.Equal(t, slices.Concat([]string{"-p"}, fixed, native), argv, "the native selection is not generated again")
 		assert.Equal(t, task, string(stdin))
 		assert.Empty(t, e.jev.requests())
 	})
@@ -489,13 +490,13 @@ func TestApp_RalphexCodexMode(t *testing.T) {
 	t.Run("model and effort fixed: no Jev call", func(t *testing.T) {
 		e := newEnv(t)
 		e.fakeCommands()
-		r := e.run([]string{"exec", "codex", "--model", "gpt-6.1-sol", "--effort", "xhigh",
-			"--", "-c", "stream_idle_timeout_ms=3600000", "--sandbox", "workspace-write"}, strings.NewReader(task))
+		r := e.run([]string{"exec", "codex", "--", "--model", "gpt-6.1-sol", "-c", `model_reasoning_effort="xhigh"`,
+			"-c", "stream_idle_timeout_ms=3600000", "--sandbox", "workspace-write"}, strings.NewReader(task))
 
 		require.Equal(t, 0, r.code, r.stderr)
 		assert.Equal(t, map[string]any{"cli": "codex", "model": "gpt-6.1-sol", "effort": "xhigh"}, selectionLog(t, r.stderr))
 		argv, _, _ := e.child()
-		assert.Equal(t, []string{"exec", "--model", "gpt-6.1-sol", "-c", `model_reasoning_effort="xhigh"`, "-c", "stream_idle_timeout_ms=3600000", "--sandbox", "workspace-write"}, argv)
+		assert.Equal(t, []string{"exec", "--model", "gpt-6.1-sol", "-c", `model_reasoning_effort="xhigh"`, "-c", "stream_idle_timeout_ms=3600000", "--sandbox", "workspace-write"}, argv, "unchanged, nothing generated")
 		assert.Empty(t, e.jev.requests())
 	})
 }
@@ -550,16 +551,18 @@ func TestApp_Decision(t *testing.T) {
 		assert.Empty(t, e.jev.requests())
 	})
 
-	t.Run("cannot decide keeps the caller's effort", func(t *testing.T) {
+	t.Run("cannot decide with a native effort: the child gets it unchanged", func(t *testing.T) {
 		e := newEnv(t)
+		e.fakeCommands()
 		t.Setenv(config.EnvAPIKey, "")
-		r := e.run([]string{"--verbose", "--cli=claude", "--effort", "high", "fix it"}, nil)
+		r := e.run([]string{"exec", "claude", "fix it", "--", "--effort", "high"}, nil)
 
 		require.Equal(t, 0, r.code, r.stderr)
-		d := decision(t, r.stdout)
-		assert.Nil(t, d["model"])
-		assert.Equal(t, "high", d["effort"])
-		assert.Equal(t, strs("claude", "-p", "--effort", "high", "--", "fix it"), d["argv"])
+		_, sel := fallbackLog(t, r.stderr)
+		assert.Nil(t, sel["model"])
+		assert.Equal(t, "high", sel["effort"])
+		argv, _, _ := e.child()
+		assert.Equal(t, []string{"-p", "--effort", "high", "--", "fix it"}, argv)
 	})
 
 	t.Run("native tokens never reach the Jev state", func(t *testing.T) {
@@ -900,7 +903,9 @@ func TestApp_Errors(t *testing.T) {
 		e := newSyntheticEnv(t)
 		e.globalConfig(syntheticCLIs(t) + "\n[cli.beta]\nenabled = false\n")
 		for _, name := range []string{"nope", "beta"} {
-			oneLine(t, e.run([]string{"exec", name, "fix it"}, nil), "agrouter: exec "+name+": not a configured, enabled CLI")
+			oneLine(t, e.run([]string{"exec", "--cli", name, "fix it"}, nil), "agrouter: exec --cli "+name+": not a configured, enabled CLI")
+			// an operand that is no enabled CLI is the prompt, so a second positional is one too many
+			oneLine(t, e.run([]string{"exec", name, "fix it"}, nil), "agrouter: more than one positional argument")
 		}
 		assert.Empty(t, e.jev.requests())
 		assert.NoFileExists(t, filepath.Join(e.out, "argv.json"), "the child must not run")
@@ -908,7 +913,9 @@ func TestApp_Errors(t *testing.T) {
 
 	t.Run("exec usage errors", func(t *testing.T) {
 		e := newSyntheticEnv(t)
-		oneLine(t, e.run([]string{"exec"}, nil), "agrouter: exec needs the CLI to run")
+		oneLine(t, e.run([]string{"exec", "alpha", "--model", "strong", "fix it"}, nil), "agrouter: --model/-m is not an agrouter option")
+		oneLine(t, e.run([]string{"exec", "--effort=low", "fix it"}, nil), "agrouter: --effort is not an agrouter option")
+		oneLine(t, e.run([]string{"--model=strong", "fix it"}, nil), "agrouter: --model/-m is not an agrouter option")
 		oneLine(t, e.run([]string{"exec", "alpha", "--cli=beta", "fix it"}, nil), "agrouter: --cli beta conflicts with exec alpha")
 		oneLine(t, e.run([]string{"exec", "alpha", "--sandbox", "read-only", "fix it"}, nil), "agrouter: unknown flag `sandbox'")
 		oneLine(t, e.run([]string{"fix it", "--"}, nil), `agrouter: "--" is only accepted with exec`)
@@ -1084,12 +1091,12 @@ func TestApp_PromptSources(t *testing.T) {
 	t.Run("exec: native child gets the explicit prompt in argv and stdin replayed", func(t *testing.T) {
 		e := newSyntheticEnv(t)
 		writeFile(t, e.workDir, "task.md", "line one\nline two\n")
-		r := e.run([]string{"exec", "alpha", "--model=strong", "--effort=low", "-p", "flag", "--prompt-file", "task.md"},
+		r := e.run([]string{"exec", "alpha", "-p", "flag", "--prompt-file", "task.md", "--", "--model", "strong", "--effort", "low"},
 			strings.NewReader("piped\r\n"))
 
 		require.Equal(t, 0, r.code, r.stderr)
 		argv, stdin, _ := e.child()
-		assert.Equal(t, []string{"-p", "--model", "deep-1", "--effort", "low", "--", "flag\n\nline one\nline two\n"}, argv)
+		assert.Equal(t, []string{"-p", "--model", "strong", "--effort", "low", "--", "flag\n\nline one\nline two\n"}, argv)
 		assert.Equal(t, "piped\r\n", string(stdin))
 	})
 }
@@ -1137,10 +1144,10 @@ func TestApp_Docs(t *testing.T) {
 		assert.Equal(t, repeated(jevPrompt(t, "fix it"), 2), e.jev.requests())
 	})
 
-	t.Run("decision: one eligible option asks Jev nothing, docs or not", func(t *testing.T) {
+	t.Run("exec: one eligible option asks Jev nothing, docs or not", func(t *testing.T) {
 		e := newSyntheticEnv(t)
 		writeFile(t, e.workDir, "project.md", "DOC TEXT\n")
-		r := e.run([]string{"--model=deep-1", "--effort=high", "--doc", "project.md", "fix it"}, nil)
+		r := e.run([]string{"exec", "alpha", "--doc", "project.md", "fix it", "--", "--model", "deep-1", "--effort", "high"}, nil)
 
 		require.Equal(t, 0, r.code, r.stderr)
 		assert.Empty(t, e.jev.requests())
@@ -1203,12 +1210,12 @@ func TestApp_Docs(t *testing.T) {
 		e := newSyntheticEnv(t)
 		writeFile(t, e.workDir, "a.md", "DOC A\n")
 		writeFile(t, e.workDir, "b.md", "DOC B\n")
-		r := e.run([]string{"exec", "alpha", "--model=strong", "--effort=low", "--doc", "a.md", "--doc=b.md", "-p", "flag"},
+		r := e.run([]string{"exec", "alpha", "--doc", "a.md", "--doc=b.md", "-p", "flag", "--", "--model", "strong", "--effort", "low"},
 			strings.NewReader("piped"))
 
 		require.Equal(t, 0, r.code, r.stderr)
 		argv, stdin, _ := e.child()
-		assert.Equal(t, []string{"-p", "--model", "deep-1", "--effort", "low", "--", "flag"}, argv)
+		assert.Equal(t, []string{"-p", "--model", "strong", "--effort", "low", "--", "flag"}, argv)
 		assert.Equal(t, "piped", string(stdin))
 		assert.NotContains(t, r.stderr, "DOC")
 	})
@@ -1222,8 +1229,10 @@ func TestApp_PromptSourceErrors(t *testing.T) {
 		assert.Equal(t, 1, strings.Count(r.stderr, "\n"), r.stderr)
 		assert.True(t, strings.HasPrefix(r.stderr, prefix), r.stderr)
 	}
-	// model and effort fixed leave one eligible option: a bad prompt file still fails, though Jev is not asked
-	pinned := []string{"exec", "alpha", "--model=strong", "--effort=low"}
+	// a native model and effort leave one eligible option: a bad prompt file still fails, though Jev is not asked
+	pinned := func(opts ...string) []string {
+		return slices.Concat([]string{"exec", "alpha"}, opts, []string{"--", "--model", "strong", "--effort", "low"})
+	}
 
 	tests := []struct {
 		name   string
@@ -1236,17 +1245,17 @@ func TestApp_PromptSourceErrors(t *testing.T) {
 		{"second --prompt-file", []string{"--prompt-file", "task.md", "--prompt-file", "task.md"}, nil,
 			"agrouter: --prompt-file given more than once"},
 		{"-p swallowing a flag", []string{"-p", "--model", "x"}, nil, "agrouter: expected argument"},
-		{"missing prompt file", append(slices.Clone(pinned), "--prompt-file", "nope.md"), nil,
+		{"missing prompt file", pinned("--prompt-file", "nope.md"), nil,
 			"agrouter: --prompt-file: nope.md: no such file"},
-		{"directory prompt file", append(slices.Clone(pinned), "--prompt-file", "sub"), nil,
+		{"directory prompt file", pinned("--prompt-file", "sub"), nil,
 			"agrouter: --prompt-file: sub: not a regular file"},
-		{"binary prompt file", append(slices.Clone(pinned), "--prompt-file", "blob.bin", "fix it"), nil,
+		{"binary prompt file", pinned("--prompt-file", "blob.bin", "fix it"), nil,
 			"agrouter: --prompt-file: blob.bin: binary file"},
-		{"missing doc", append(slices.Clone(pinned), "--doc", "task.md", "--doc", "nope.md", "fix it"), nil,
+		{"missing doc", pinned("--doc", "task.md", "--doc", "nope.md", "fix it"), nil,
 			"agrouter: --doc: nope.md: no such file"},
-		{"directory doc", append(slices.Clone(pinned), "--doc", "sub", "fix it"), nil,
+		{"directory doc", pinned("--doc", "sub", "fix it"), nil,
 			"agrouter: --doc: sub: not a regular file"},
-		{"binary doc", append(slices.Clone(pinned), "--doc", "blob.bin", "fix it"), nil,
+		{"binary doc", pinned("--doc", "blob.bin", "fix it"), nil,
 			"agrouter: --doc: blob.bin: binary file"},
 		{"bad doc in decision mode", []string{"--doc", "nope.md", "fix it"}, nil,
 			"agrouter: --doc: nope.md: no such file"},
@@ -1280,8 +1289,8 @@ func TestApp_ExecSelectionBeforeChild(t *testing.T) {
 		require.NoError(t, err)
 		return 7, nil
 	}}
-	r := e.runWithRunner([]string{"exec", "acme", "--model=preferred", "--effort=thorough",
-		"--api-key=private-api-key", "private prompt", "--", "private raw token"}, nil, child)
+	r := e.runWithRunner([]string{"exec", "acme", "--api-key=private-api-key", "private prompt", "--",
+		"--llm", "preferred", "--think=thorough", "private raw token"}, nil, child)
 	assert.Equal(t, 7, r.code)
 	assert.JSONEq(t, `{"child":"output"}`, r.stdout)
 	line, rest, ok := strings.Cut(r.stderr, "\n")
@@ -1297,21 +1306,21 @@ func TestApp_Exec(t *testing.T) {
 		e := newEnv(t)
 		e.fakeCommands()
 		t.Setenv(helperExit, "7")
-		r := e.run([]string{"exec", "claude", "--model=opus", "--effort=low", "fix it"}, nil)
+		r := e.run([]string{"exec", "claude", "fix it", "--", "--model", "opus", "--effort", "low"}, nil)
 
 		assert.Equal(t, 7, r.code)
 		assert.Empty(t, r.stdout)
 		assert.Equal(t, map[string]any{"cli": "claude", "model": "claude-opus-5-5", "effort": "low"},
 			selectionLog(t, r.stderr))
 		argv, stdin, _ := e.child()
-		assert.Equal(t, []string{"-p", "--model", "claude-opus-5-5", "--effort", "low", "--", "fix it"}, argv)
+		assert.Equal(t, []string{"-p", "--model", "opus", "--effort", "low", "--", "fix it"}, argv)
 		assert.Empty(t, stdin)
 	})
 
 	t.Run("missing command: 127", func(t *testing.T) {
 		e := newEnv(t)
 		e.globalConfig("[cli.claude]\ncommand = agrouter-test-no-such-command\n")
-		r := e.run([]string{"exec", "claude", "--model=opus", "--effort=low", "fix it"}, nil)
+		r := e.run([]string{"exec", "claude", "fix it", "--", "--model", "opus", "--effort", "low"}, nil)
 
 		assert.Equal(t, runner.ExitStartFailure, r.code)
 		assert.Empty(t, r.stdout)
@@ -1355,12 +1364,12 @@ func TestApp_ExecNativeTail(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newSyntheticEnv(t)
-			r := e.run(slices.Concat([]string{"exec", "alpha", "--model=strong", "--effort=low", "--"}, tc.native),
-				strings.NewReader("prompt on stdin\x00\r\n"))
+			fixed := []string{"--model", "strong", "--effort", "low"}
+			r := e.run(slices.Concat([]string{"exec", "alpha", "--"}, fixed, tc.native), strings.NewReader("prompt on stdin\x00\r\n"))
 
 			require.Equal(t, 0, r.code, r.stderr)
 			argv, stdin, _ := e.child()
-			assert.Equal(t, slices.Concat([]string{"-p", "--model", "deep-1", "--effort", "low"}, tc.native), argv)
+			assert.Equal(t, slices.Concat([]string{"-p"}, fixed, tc.native), argv)
 			assert.Equal(t, "prompt on stdin\x00\r\n", string(stdin))
 			assert.Empty(t, e.jev.requests())
 		})
@@ -1368,38 +1377,44 @@ func TestApp_ExecNativeTail(t *testing.T) {
 }
 
 func TestApp_ExecNativeSelections(t *testing.T) {
+	// alpha's templates are "--model {model}" and "--effort {effort}"; Jev picks fast@low, or deep@low
+	// when the native model is deep
 	tests := []struct {
-		name              string
-		own, native, want []string
-		jev               bool
+		name         string
+		native, want []string
+		asked        []string // the stages Jev was asked
 	}{
-		{name: "native model never constrains Jev", native: []string{"-m", "native-model"},
-			want: []string{"--model", "fast-1", "--effort", "low", "-m", "native-model"}, jev: true},
-		{name: "caller short model wins", own: []string{"-m", "strong", "--effort=low"}, native: []string{"-m", "native-model"},
-			want: []string{"--model", "deep-1", "--effort", "low", "-m", "native-model"}},
-		{name: "caller model outside catalog wins", own: []string{"-m", "model1", "--effort=low"}, native: []string{"-m", "model2", "--effort=high"},
-			want: []string{"--model", "model1", "--effort", "low", "-m", "model2", "--effort=high"}},
-		{name: "equals and attached selections pass through", native: []string{"--model=native", "-mother", "--effort=native", "--json"},
-			want: []string{"--model", "fast-1", "--effort", "low", "--model=native", "-mother", "--effort=native", "--json"}, jev: true},
+		{name: "an unrecognized spelling never constrains Jev", native: []string{"-m", "native-model"},
+			want: []string{"--model", "fast-1", "--effort", "low", "-m", "native-model"}, asked: []string{"model", "effort"}},
+		{name: "model alias and effort: nothing generated, nothing asked", native: []string{"--model", "strong", "--effort", "low"},
+			want: []string{"--model", "strong", "--effort", "low"}},
+		{name: "model alias alone: only the effort is generated", native: []string{"--model", "strong"},
+			want: []string{"--effort", "low", "--model", "strong"}, asked: []string{"effort"}},
+		{name: "effort alone: only the model is generated", native: []string{"--effort", "high"},
+			want: []string{"--model", "fast-1", "--effort", "high"}, asked: []string{"model"}},
+		{name: "model outside the catalog is left to the child", native: []string{"-m", "x", "--model", "model1", "--effort=low"},
+			want: []string{"-m", "x", "--model", "model1", "--effort=low"}},
+		{name: "equals forms are detected, unrecognized ones pass through", native: []string{"--model=native", "-mother", "--effort=native", "--json"},
+			want: []string{"--model=native", "-mother", "--effort=native", "--json"}},
 		{name: "native settings and config kept", native: []string{"--profile", "work", "-c", `model="native"`},
-			want: []string{"--model", "fast-1", "--effort", "low", "--profile", "work", "-c", `model="native"`}, jev: true},
-		{name: "selection-shaped positionals after child separator", native: []string{"--json", "--", "--model", "text"},
-			want: []string{"--model", "fast-1", "--effort", "low", "--json", "--", "--model", "text"}, jev: true},
+			want: []string{"--model", "fast-1", "--effort", "low", "--profile", "work", "-c", `model="native"`}, asked: []string{"model", "effort"}},
+		{name: "selection-shaped tokens after the child's separator are not read", native: []string{"--json", "--", "--model", "text"},
+			want: []string{"--model", "fast-1", "--effort", "low", "--json", "--", "--model", "text"}, asked: []string{"model", "effort"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newSyntheticEnv(t)
 			e.jev.pick = "fast@low"
-			r := e.run(slices.Concat([]string{"exec", "alpha"}, tc.own, []string{"--"}, tc.native), strings.NewReader("task on stdin"))
+			if slices.Contains(tc.native, "strong") {
+				e.jev.pick = "deep@low"
+			}
+			r := e.run(slices.Concat([]string{"exec", "alpha", "--"}, tc.native), strings.NewReader("task on stdin"))
 			require.Equal(t, exitOK, r.code, r.stderr)
 			child, stdin, _ := e.child()
 			assert.Equal(t, slices.Concat([]string{"-p"}, tc.want), child)
 			assert.Equal(t, "task on stdin", string(stdin))
-			if tc.jev {
-				assert.Equal(t, repeated(`{"prompt":"task on stdin"}`, 2), e.jev.requests())
-			} else {
-				assert.Empty(t, e.jev.requests())
-			}
+			assert.Len(t, e.jev.requests(), len(tc.asked), "one request per asked stage")
+			assert.Equal(t, tc.asked, e.jev.asked())
 			assert.NotContains(t, r.stderr, "native-model")
 		})
 	}
@@ -1478,15 +1493,12 @@ func TestApp_ConfigDrivenNames(t *testing.T) {
 			assert.Equal(t, stdin, string(gotStdin))
 			require.Len(t, e.jev.requests(), 2, "one CLI: model and effort asked")
 
-			r = e.run([]string{"--verbose", "--cli", tc.cli, "--model", "preferred", "--effort", tc.effort, "do it"}, nil)
+			r = e.run([]string{"exec", tc.cli, "do it", "--", "--llm", "preferred", "--think=" + tc.effort}, nil)
 			require.Equal(t, 0, r.code, r.stderr)
-			d := decision(t, r.stdout)
-			assert.Equal(t, tc.cli, d["cli"])
-			assert.Equal(t, tc.model, d["model"])
-			assert.Equal(t, tc.effort, d["effort"])
-			assert.Equal(t, strs(helperCommand(t), "run", "--quiet", "--llm", tc.model,
-				"--think="+tc.effort, "--", "do it"), d["argv"])
-			assert.Len(t, e.jev.requests(), 2, "a model alias plus an effort selects one option without Jev")
+			assert.Equal(t, map[string]any{"cli": tc.cli, "model": tc.model, "effort": tc.effort}, selectionLog(t, r.stderr))
+			got, _, _ = e.child()
+			assert.Equal(t, []string{"run", "--quiet", "--llm", "preferred", "--think=" + tc.effort, "--", "do it"}, got)
+			assert.Len(t, e.jev.requests(), 2, "a native model alias plus an effort selects one option without Jev")
 		})
 	}
 }
@@ -1504,8 +1516,8 @@ func TestApp_HelpHasKeyCautions(t *testing.T) {
 func TestApp_InstallsConfig(t *testing.T) {
 	t.Run("first run", func(t *testing.T) {
 		e := newEnv(t)
-		// passthrough values fix all stages without relying on the shipped model catalog
-		r := e.run([]string{"--cli", defaultsCLI(t), "--model=custom-model", "--effort=custom-effort", "do it"}, nil)
+		// no key: the pinned CLI is decided without the classifier, whatever the shipped model catalog holds
+		r := e.run([]string{"--cli", defaultsCLI(t), "--api-key=", "do it"}, nil)
 		require.Equal(t, exitOK, r.code, r.stderr)
 		assert.Empty(t, r.stderr)
 		assert.True(t, json.Valid([]byte(r.stdout)))
@@ -1605,8 +1617,8 @@ func TestApp_MirrorLog(t *testing.T) {
 			_, _ = fmt.Fprintln(c.Stderr, "CHILD-STDERR")
 			return 3, nil
 		}}
-		r := e.runWithRunner([]string{"exec", "acme", "--model=preferred", "--effort=thorough",
-			"--api-key=" + keyMarker, promptMarker, "--", argvMarker}, nil, child)
+		r := e.runWithRunner([]string{"exec", "acme", "--api-key=" + keyMarker, promptMarker, "--",
+			"--llm", "preferred", "--think=thorough", argvMarker}, nil, child)
 		require.Equal(t, 3, r.code, r.stderr)
 		assert.Equal(t, "CHILD-STDOUT\n", r.stdout)
 
@@ -1653,7 +1665,7 @@ func TestApp_MirrorLog(t *testing.T) {
 
 		child := &mocks.CommandRunnerMock{RunFunc: func(context.Context, runner.Command) (int, error) { return 0, nil }}
 		var stdout bytes.Buffer
-		code := e.app(nil, &stdout, io.Discard, child).run([]string{"exec", "acme", "--model=preferred", "--effort=thorough", "fix it"})
+		code := e.app(nil, &stdout, io.Discard, child).run([]string{"exec", "acme", "fix it", "--", "--llm", "preferred", "--think=thorough"})
 		require.Equal(t, exitOK, code)
 
 		assert.Contains(t, mirrored(t, e.mirrorPath()), selectionPrefix)
@@ -1885,4 +1897,51 @@ func TestApp_MirrorLogSymlinkTargetUntouched(t *testing.T) {
 	require.Equal(t, exitOK, a.run([]string{"fix it"}), stderr.String())
 	assert.Contains(t, stderr.String(), "symlink")
 	assert.Equal(t, "[user]\n", readFile(t, victim))
+}
+
+func TestNativeSelections(t *testing.T) {
+	cfg := &config.Config{CLIs: []config.CLI{
+		{Name: "alpha", ModelArgs: []string{"--model", "{model}"}, EffortArgs: []string{"--effort", "{effort}"}},
+		{Name: "beta", ModelArgs: []string{"-c", `model="{model}"`}},
+	}}
+
+	raw := []string{"--model", "x", "-c", `model="y"`, "--effort=low"}
+	tests := []struct {
+		name string
+		req  args.Request
+		want map[string]args.Selection
+	}{
+		{"decision mode reads nothing", args.Request{Raw: raw}, nil},
+		{"exec without a pin reads every CLI", args.Request{Mode: args.ModeExec, Raw: raw},
+			map[string]args.Selection{"alpha": {Model: "x", Effort: "low"}, "beta": {Model: "y"}}},
+		{"a pinned CLI reads only itself", args.Request{Mode: args.ModeExec, CLI: "beta", Raw: raw},
+			map[string]args.Selection{"beta": {Model: "y"}}},
+		{"no native arguments", args.Request{Mode: args.ModeExec}, nil},
+		{"nothing recognized", args.Request{Mode: args.ModeExec, Raw: []string{"--verbose"}}, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, nativeSelections(cfg, &tc.req))
+		})
+	}
+}
+
+func TestGeneratedChoice(t *testing.T) {
+	d := router.Decision{CLI: "alpha", Model: "m-1", Effort: "high"}
+	tests := []struct {
+		name   string
+		native map[string]args.Selection
+		want   args.Choice
+	}{
+		{"no native values", nil, args.Choice{Model: "m-1", Effort: "high"}},
+		{"native model", map[string]args.Selection{"alpha": {Model: "m"}}, args.Choice{Effort: "high"}},
+		{"native effort", map[string]args.Selection{"alpha": {Effort: "high"}}, args.Choice{Model: "m-1"}},
+		{"both native", map[string]args.Selection{"alpha": {Model: "m", Effort: "high"}}, args.Choice{}},
+		{"another CLI's native values", map[string]args.Selection{"beta": {Model: "m", Effort: "high"}}, args.Choice{Model: "m-1", Effort: "high"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, generatedChoice(&args.Request{Native: tc.native}, d))
+		})
+	}
 }

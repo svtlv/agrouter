@@ -367,15 +367,15 @@ Compatibility notes:
 - Modify: `cmd/agrouter/fallback_test.go`, `cmd/agrouter/reason_test.go`, `cmd/agrouter/readiness_test.go`, `cmd/agrouter/debug_test.go`
 - Modify: `cmd/agrouter/app_windows_test.go` (build-tagged; check with `GOOS=windows go vet ./cmd/agrouter`)
 
-- [ ] `execOperand` keeps a candidate operand instead of failing; after config load it becomes the CLI if it names a configured CLI (disabled: exit 2), else the positional prompt; recheck "more than one positional argument" afterwards
-- [ ] `--cli` in exec pins the provider; operand and `--cli` disagreeing stays exit 2
-- [ ] mark `Model`/`Effort` `hidden:"true"`; `check` returns the fixed migration-hint errors (exit 2) in both modes
-- [ ] in exec, fill `req.Native` from `args.NativeSelection` for the pinned CLI or every enabled CLI; build `Choice` without natively set fields
-- [ ] remove `dropUnpassableEffort`, `routed.effortDropped`, its `selectionOutput` branch and `nullEffortDropped`, with their tests
-- [ ] update `helpText` and `parser.Usage` (`exec [CLI] ...`; only the provider is pinned by agrouter; model/effort go after `--` as the CLI's own flags)
-- [ ] migrate every `cmd/agrouter` fixture that passes `--model`/`-m`/`--effort` before `--` to native flags after `--`, so each test keeps covering its concern (e.g. the Windows start failure keeps exit 127)
-- [ ] tests: every row of the exec command-line table; the rejection for every spelling in both modes (exit 2, hint, no classifier request, no child start); decision mode still rejects `--`; `--help` hides the options
-- [ ] run `make test` - must pass before task 5
+- [x] `execOperand` keeps a candidate operand instead of failing; after config load (`resolveExec`) it becomes the CLI if it names an enabled CLI, else the positional prompt; recheck "more than one positional argument" afterwards (⚠️ the config drops disabled CLIs, so a disabled name cannot be told from a prompt: `exec <disabled> "x"` is exit 2 as a second positional, `exec <disabled>` alone is a prompt; `exec --cli <disabled>` is exit 2)
+- [x] `--cli` in exec pins the provider; operand and `--cli` disagreeing stays exit 2
+- [x] mark `Model`/`Effort` `hidden:"true"`; `check` returns the fixed migration-hint errors (exit 2) in both modes
+- [x] in exec, fill `req.Native` from `args.NativeSelection` for the pinned CLI or every enabled CLI (`nativeSelections`); build `Choice` without natively set fields (`generatedChoice`) (⚠️ without a pinned CLI the separator check and readiness probe are skipped until Task 5)
+- [x] remove `dropUnpassableEffort`, `routed.effortDropped`, its `selectionOutput` branch and `nullEffortDropped`, with their tests
+- [x] update `helpText` and `parser.Usage` (`exec [CLI] ...`; only the provider is pinned by agrouter; model/effort go after `--` as the CLI's own flags)
+- [x] migrate every `cmd/agrouter` fixture that passes `--model`/`-m`/`--effort` before `--` to native flags after `--`, so each test keeps covering its concern (e.g. the Windows start failure keeps exit 127)
+- [x] tests: every row of the exec command-line table; the rejection for every spelling in both modes (exit 2, hint, no classifier request, no child start); decision mode still rejects `--`; `--help` hides the options
+- [x] run `make test` - must pass before task 5
 
 ### Task 5: Readiness and separator checks without a provider
 

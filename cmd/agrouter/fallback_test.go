@@ -57,7 +57,7 @@ func TestApp_ExecFallback(t *testing.T) {
 		warning        string
 		fallback       map[string]any
 		effective      map[string]any
-		childModel     string // the --model the child gets; empty for none
+		childModel     string // the model value the child gets; empty for none
 		childHasEffort bool
 	}{
 		{name: "model stage, verified model and unknown effort", stage: "model", model: "m-2",
@@ -75,20 +75,20 @@ func TestApp_ExecFallback(t *testing.T) {
 				"alpha default, not a classifier selection: effort high (verified child default)",
 			fallback: effortOnly, effective: map[string]any{"model": chosenBy(sourceRouter, "fast-1"), "effort": verified("high")},
 			childModel: "fast-1"},
-		{name: "caller's model is no fallback", stage: "effort", argv: []string{"--model=strong"},
+		{name: "caller's model is no fallback", stage: "effort", argv: []string{"--model", "strong"},
 			warning: "agrouter: warning: Classifier routing failed at the effort stage (classifier_api_error); effort falls back to the " +
 				"alpha default, not a classifier selection: effort unknown (child did not report it)",
 			fallback:   effortOnly,
 			effective:  map[string]any{"model": chosenBy(sourceCaller, "deep-1"), "effort": unknownDefault(defaultNotReported)},
-			childModel: "deep-1"},
-		{name: "the child's default model reported by alias", stage: "effort", argv: []string{"--model=deep-1"},
+			childModel: "strong"},
+		{name: "the child's default model reported by alias", stage: "effort", argv: []string{"--model", "deep-1"},
 			model: "strong", effort: "high",
 			warning: "agrouter: warning: Classifier routing failed at the effort stage (classifier_api_error); effort falls back to the " +
 				"alpha default, not a classifier selection: effort high (verified child default)",
 			fallback:   effortOnly,
 			effective:  map[string]any{"model": chosenBy(sourceCaller, "deep-1"), "effort": verified("high")},
 			childModel: "deep-1"},
-		{name: "caller's effort is no fallback", stage: "model", argv: []string{"--effort=low"}, model: "m-2",
+		{name: "caller's effort is no fallback", stage: "model", argv: []string{"--effort", "low"}, model: "m-2",
 			warning: "agrouter: warning: Classifier routing failed at the model stage (classifier_api_error); model falls back to the " +
 				"alpha default, not a classifier selection: model m-2 (verified child default)",
 			fallback: modelOnly, effective: map[string]any{"model": verified("m-2"), "effort": chosenBy(sourceCaller, "low")},
@@ -102,14 +102,19 @@ func TestApp_ExecFallback(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := failingEnv(t, tc.stage, func(*fakeJev) {})
 			e.checker = defaultsChecker(tc.model, tc.effort)
-			argv := append([]string{"exec", "alpha"}, tc.argv...)
+			argv := []string{"exec", "alpha"}
 			if tc.stage == "complexity" {
 				e.jev.failDocs = true
 				doc := filepath.Join(e.workDir, "doc.md")
 				require.NoError(t, os.WriteFile(doc, []byte("# project\n"), 0o600))
 				argv = append(argv, "--doc", doc)
 			}
-			r := e.run(append(argv, "fix it"), nil)
+			argv = append(argv, "fix it")
+			if len(tc.argv) > 0 {
+				argv = append(argv, "--")
+				argv = append(argv, tc.argv...) // native tokens: the child's own model and effort flags
+			}
+			r := e.run(argv, nil)
 
 			require.Equal(t, exitOK, r.code, r.stderr)
 			warning, s := fallbackLog(t, r.stderr)
@@ -249,7 +254,7 @@ func TestApp_ExecNoFallback(t *testing.T) {
 		e := newEnv(t)
 		e.globalConfig(syntheticCLIs(t) + "\n[model.plain]\ncli = alpha\nname = plain-1\ndescription = No efforts.\n")
 		e.checker = defaultsChecker("", "high")
-		r := e.run([]string{"exec", "alpha", "--model=plain-1", "fix it"}, nil)
+		r := e.run([]string{"exec", "alpha", "fix it", "--", "--model", "plain-1"}, nil)
 
 		require.Equal(t, exitOK, r.code, r.stderr)
 		s := selectionLog(t, r.stderr)
@@ -260,7 +265,7 @@ func TestApp_ExecNoFallback(t *testing.T) {
 	t.Run("an effort left to a passed-through model", func(t *testing.T) {
 		e := newSyntheticEnv(t)
 		e.checker = defaultsChecker("made-up-9", "high")
-		r := e.run([]string{"exec", "alpha", "--model=made-up-9", "fix it"}, nil)
+		r := e.run([]string{"exec", "alpha", "fix it", "--", "--model", "made-up-9"}, nil)
 
 		require.Equal(t, exitOK, r.code, r.stderr)
 		s := selectionLog(t, r.stderr)
@@ -271,7 +276,7 @@ func TestApp_ExecNoFallback(t *testing.T) {
 	t.Run("a default effort of another model is unknown", func(t *testing.T) {
 		e := newSyntheticEnv(t)
 		e.checker = defaultsChecker("m-2", "high")
-		r := e.run([]string{"exec", "alpha", "--model=made-up-9", "fix it"}, nil)
+		r := e.run([]string{"exec", "alpha", "fix it", "--", "--model", "made-up-9"}, nil)
 
 		require.Equal(t, exitOK, r.code, r.stderr)
 		s := selectionLog(t, r.stderr)

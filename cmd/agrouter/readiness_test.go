@@ -175,7 +175,7 @@ func TestApp_ExecPreflightUnknownAllowed(t *testing.T) {
 			e := newSyntheticEnv(t)
 			e.checker = reportChecker(func(cli config.CLI) readiness.Report { return withQuota(cli, tc.evidence...) })
 			const input = "prompt on stdin\x00\r\n"
-			r := e.run([]string{"exec", "alpha", "--model=fast-1", "--effort=low"}, strings.NewReader(input))
+			r := e.run([]string{"exec", "alpha", "--", "--model", "fast-1", "--effort", "low"}, strings.NewReader(input))
 
 			require.Equal(t, 0, r.code, r.stderr)
 			warning, rest, ok := strings.Cut(r.stderr, "\n")
@@ -211,7 +211,7 @@ func TestApp_ExecPreflightFiltersOptions(t *testing.T) {
 	t.Run("a fixed model is never broadened", func(t *testing.T) {
 		e := newSyntheticEnv(t)
 		e.checker = reportChecker(deepBlocked)
-		r := e.runWithRunner([]string{"exec", "alpha", "--model=strong", "fix it"}, nil, noChild(t))
+		r := e.runWithRunner([]string{"exec", "alpha", "fix it", "--", "--model", "strong"}, nil, noChild(t))
 
 		assert.Equal(t, runner.ExitStartFailure, r.code)
 		assert.Equal(t, routingSkipped("subscription quota exhausted")+
@@ -237,7 +237,7 @@ func TestApp_ExecPreflightFiltersOptions(t *testing.T) {
 		e := newSyntheticEnv(t)
 		checker := reportChecker(readyReport)
 		e.checker = checker
-		r := e.run([]string{"exec", "alpha", "--model=fast-1", "--effort=low", "fix it"}, nil)
+		r := e.run([]string{"exec", "alpha", "fix it", "--", "--model", "fast-1", "--effort", "low"}, nil)
 
 		require.Equal(t, 0, r.code, r.stderr)
 		assert.Len(t, checker.CheckCalls(), 1)
@@ -264,7 +264,7 @@ func TestApp_ExecPreflightIgnoresNativeContext(t *testing.T) {
 				return withQuota(cli, readiness.Evidence{Dimension: readiness.DimensionQuota, Status: readiness.StatusNotApplicable})
 			})
 			e.checker = checker
-			argv := append([]string{"exec", "alpha", "--model=fast-1", "--effort=low", "fix it", "--"}, tc.native...)
+			argv := append([]string{"exec", "alpha", "fix it", "--", "--model", "fast-1", "--effort", "low"}, tc.native...)
 			r := e.run(argv, nil)
 
 			require.Equal(t, 0, r.code, r.stderr)
@@ -284,7 +284,7 @@ func TestApp_ExecPreflightDeadline(t *testing.T) {
 		return withQuota(cli, unknownQuota(readiness.ReasonProbeTimeout))
 	}}
 	start := time.Now()
-	r := e.run([]string{"exec", "alpha", "--model=fast-1", "--effort=low"}, strings.NewReader("fix it\n"))
+	r := e.run([]string{"exec", "alpha", "--", "--model", "fast-1", "--effort", "low"}, strings.NewReader("fix it\n"))
 
 	require.Equal(t, 0, r.code, r.stderr)
 	assert.Less(t, time.Since(start), 5*time.Second)
@@ -410,7 +410,7 @@ func TestApp_ExecPreflightWithJSONHelper(t *testing.T) {
 			e.globalConfig(syntheticCLIs(t) + usageCheck("error_message = Limit reached", "args = [\""+helperProbeArg+"\"]"))
 			e.checker = readiness.Checker{Dir: e.workDir}
 			t.Setenv(helperProbe, tc.output)
-			r := e.run([]string{"exec", "alpha", "--model=fast-1", "--effort=low", "fix it"}, nil)
+			r := e.run([]string{"exec", "alpha", "fix it", "--", "--model", "fast-1", "--effort", "low"}, nil)
 
 			assert.Equal(t, tc.code, r.code, r.stderr)
 			if tc.code != 0 {

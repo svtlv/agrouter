@@ -159,14 +159,13 @@ func (a *app) run(argv []string) int {
 		return a.fail(err)
 	}
 	a.startLog(mirror, cfg.Agrouter.LogDir)
-	if req.Mode == args.ModeExec {
-		// a CLI without catalog options would fall back to routing across every CLI
-		if len(catalog.ByCLI(cat.Options, req.CLI)) == 0 {
-			return a.fail(fmt.Errorf("exec %s: not a configured, enabled CLI", req.CLI))
-		}
+	// a CLI without catalog options would fall back to routing across every CLI
+	enabled := func(name string) bool { return len(catalog.ByCLI(cat.Options, name)) > 0 }
+	if err = resolveExec(cmd, enabled); err != nil {
+		return a.fail(err)
 	}
 
-	req.Native = nativeFromFlags(cfg, cat, req, cmd.model, cmd.effort)
+	req.Native = nativeSelections(cfg, req)
 	d, err := a.route(cfg, cat, rt, req)
 	if err != nil {
 		// the stages completed before the classifier failed, if any
@@ -189,7 +188,7 @@ func (a *app) run(argv []string) int {
 	a.debug.decision(d.Decision)
 
 	cli, _ := cfg.CLIByName(d.CLI)
-	res := args.Build(cli, req, d.Choice())
+	res := args.Build(cli, req, generatedChoice(req, d.Decision))
 	a.debug.command(res)
 
 	if req.Mode == args.ModeDecision {
@@ -279,32 +278,40 @@ func (a *app) setup(req *args.Request) (*config.Config, *catalog.Catalog, *route
 	return cfg, cat, rt, nil
 }
 
-// nativeFromFlags gives the --model and --effort values to the CLIs they constrain: the model's own CLI when
-// it is in the catalog, otherwise every CLI (the pinned one only, with --cli or exec); an effort alone goes
-// to the CLIs having an option with it, or to every one when none has. Exec's native detection replaces it.
-func nativeFromFlags(cfg *config.Config, cat *catalog.Catalog, req *args.Request, model, effort string) map[string]args.Selection {
-	if model == "" && effort == "" {
+// nativeSelections reads the model and effort the native arguments set, through each CLI's own templates:
+// for the pinned CLI only, else for every enabled one. Only CLIs that detected something are kept; nil
+// when none did, and always nil outside exec.
+func nativeSelections(cfg *config.Config, req *args.Request) map[string]args.Selection {
+	if req.Mode != args.ModeExec {
 		return nil
 	}
-	owner := ""
-	if m, ok := cat.LookupModel(model); ok && model != "" {
-		owner = m.CLI
-	}
-	native := map[string]args.Selection{}
+	var native map[string]args.Selection
 	for _, cli := range cfg.CLIs {
 		if req.CLI != "" && cli.Name != req.CLI {
 			continue
 		}
-		if req.CLI == "" && owner != "" && cli.Name != owner {
-			continue
+		if sel := args.NativeSelection(cli, req.Raw); sel != (args.Selection{}) {
+			if native == nil {
+				native = map[string]args.Selection{}
+			}
+			native[cli.Name] = sel
 		}
-		if req.CLI == "" && model == "" && len(catalog.ByEffort(catalog.ByCLI(cat.Options, cli.Name), effort)) == 0 &&
-			len(catalog.ByEffort(cat.Options, effort)) > 0 {
-			continue
-		}
-		native[cli.Name] = args.Selection{Model: model, Effort: effort}
 	}
 	return native
+}
+
+// generatedChoice is the choice for the argv: d's model and effort, less the fields the native arguments
+// already set for the chosen CLI. Those pass through unchanged, so generating them again would repeat the flag.
+func generatedChoice(req *args.Request, d router.Decision) args.Choice {
+	c := d.Choice()
+	sel := req.Native[d.CLI]
+	if sel.Model != "" {
+		c.Model = ""
+	}
+	if sel.Effort != "" {
+		c.Effort = ""
+	}
+	return c
 }
 
 // routed is the decision together with the captured prompt, whose stdin the child replays.
@@ -313,9 +320,6 @@ type routed struct {
 	captured *prompt.Result
 	options  []optionJSON
 	checked  *checked // exec's preflight; nil in decision mode
-	// effortDropped is true when the caller's --effort was dropped: the chosen CLI has no effort_args
-	// to pass it.
-	effortDropped bool
 }
 
 // route reads --prompt-file and every --doc, captures the prompt and decides, all within the routing
@@ -334,16 +338,11 @@ func (a *app) route(cfg *config.Config, cat *catalog.Catalog, rt *router.Router,
 		}
 		req.FileText = text
 	}
-	var (
-		execCLI config.CLI
-		pf      *preflight
-	)
-	if req.Mode == args.ModeExec {
-		execCLI, _ = cfg.CLIByName(req.CLI)
-		if err := args.CheckSeparator(execCLI, req); err != nil {
-			return routed{}, err
-		}
-		pf = a.startPreflight(ctx, execCLI)
+	execCLI, pf, execErr := a.startExecChecks(ctx, cfg, req)
+	if execErr != nil {
+		return routed{}, execErr
+	}
+	if pf != nil {
 		// an early return stops the probes before leaving
 		defer func() { cancel(); pf.wait() }()
 	}
@@ -399,21 +398,20 @@ func (a *app) route(cfg *config.Config, cat *catalog.Catalog, rt *router.Router,
 	for i, o := range el.Options {
 		options[i] = optionJSON{ID: o.ID, CLI: o.CLI, Model: o.Name, Effort: el.EffortFor(o)}
 	}
-	dropped := a.dropUnpassableEffort(cfg, &d)
-	return routed{Decision: d, captured: captured, options: options, checked: pre, effortDropped: dropped}, nil
+	return routed{Decision: d, captured: captured, options: options, checked: pre}, nil
 }
 
-// dropUnpassableEffort clears d's effort when its CLI has no effort_args to pass it, with one warning,
-// so the selection never reports an effort the child does not receive. Only a caller's --effort can
-// get here: a CLI whose models have efforts must have effort_args.
-func (a *app) dropUnpassableEffort(cfg *config.Config, d *router.Decision) bool {
-	cli, ok := cfg.CLIByName(d.CLI)
-	if d.Effort == "" || !ok || len(cli.EffortArgs) > 0 {
-		return false
+// startExecChecks checks the pinned exec CLI's native arguments for a separator its prompt argument would clash
+// with, then starts its readiness probe. Without a pinned CLI, or outside exec, it does neither.
+func (a *app) startExecChecks(ctx context.Context, cfg *config.Config, req *args.Request) (config.CLI, *preflight, error) {
+	if req.Mode != args.ModeExec || req.CLI == "" {
+		return config.CLI{}, nil, nil
 	}
-	fmt.Fprintf(a.stderr, "agrouter: warning: dropped --effort %s: %s has no effort_args to pass it\n", d.Effort, cli.Name)
-	d.Effort, d.NoEffort = "", true
-	return true
+	cli, _ := cfg.CLIByName(req.CLI)
+	if err := args.CheckSeparator(cli, req); err != nil {
+		return config.CLI{}, nil, err
+	}
+	return cli, a.startPreflight(ctx, cli), nil
 }
 
 // printDecision writes concise or indented verbose JSON to stdout.
@@ -445,9 +443,6 @@ func (a *app) writeDecision(out any, verbose bool) int {
 // selectionOutput is the selection of d; failure is the routing error when no CLI was chosen.
 func selectionOutput(d routed, verbose bool, failure error) selectionJSON {
 	out := selection(d.Decision, verbose, failure)
-	if d.effortDropped && out.NullReasons != nil {
-		out.NullReasons.Effort = &nullReasonJSON{nullEffortDropped, "The CLI has no effort_args to pass the requested effort"}
-	}
 	if verbose {
 		out.Options = d.options
 	}

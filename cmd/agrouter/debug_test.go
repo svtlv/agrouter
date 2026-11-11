@@ -120,8 +120,9 @@ func TestDebug_NoKeyAndNoDecision(t *testing.T) {
 
 func TestDebug_SingleOption(t *testing.T) {
 	e := newEnv(t)
+	e.fakeCommands()
 	t.Setenv(envDebug, "1")
-	r := e.run([]string{"--model", "claude-opus-5-5", "--effort", "high", "fix it"}, nil)
+	r := e.run([]string{"exec", "claude", "fix it", "--", "--model", "claude-opus-5-5", "--effort", "high"}, nil)
 	require.Equal(t, 0, r.code, r.stderr)
 	assert.Contains(t, debugLines(r.stderr), "one option, classifier not asked: claude-opus-5-5@high")
 	assert.Empty(t, e.jev.requests())
@@ -322,7 +323,7 @@ func TestDebug_Readiness(t *testing.T) {
 		r.Defaults.Model = &model
 		return r
 	})
-	r := e.run([]string{"exec", "alpha", "--model=fast-1", "--effort=low", "--api-key=" + testKey, "fix it"}, nil)
+	r := e.run([]string{"exec", "alpha", "--api-key=" + testKey, "fix it", "--", "--model", "fast-1", "--effort", "low"}, nil)
 	require.Equal(t, 0, r.code, r.stderr)
 
 	var lines []string

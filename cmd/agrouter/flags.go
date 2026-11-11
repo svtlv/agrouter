@@ -12,7 +12,7 @@ import (
 	"github.com/svtlv/agrouter/pkg/args"
 )
 
-// execToken selects exec mode, but only as the first token; the CLI to run follows it.
+// execToken selects exec mode, but only as the first token; an optional CLI to run follows it.
 const execToken = "exec"
 
 // legacyCLIEnv once restricted routing to one CLI; it is ignored now, with a warning when set.
@@ -27,13 +27,14 @@ const slashEscape = "\x00"
 const helpText = `agrouter asks a routing classifier which (cli, model, effort) should run a prompt.
 
   agrouter [OPTIONS] [PROMPT]
-  agrouter exec CLI [OPTIONS] [PROMPT] [-- NATIVE ARGS...]
+  agrouter exec [CLI] [OPTIONS] [PROMPT] [-- NATIVE ARGS...]
 
-Without "exec" it prints that decision as JSON. With "exec" as the first token,
-followed by the CLI to run, it routes within that CLI and runs it; the CLI's own
-options go after "--". Agrouter replaces native --model/-m and --effort selections;
-other options are passed through in order, followed by the chosen model and effort.
-"--" is only accepted with exec.
+Without "exec" it prints that decision as JSON. With "exec" as the first token it
+routes and runs the chosen CLI. The token after "exec" pins the CLI when it names
+an enabled one (--cli does too); otherwise it is the prompt and routing chooses
+the CLI. Everything after "--" reaches the chosen CLI unchanged: the CLI's own
+model and effort flags there fix those fields, so routing skips them, and can
+imply the CLI. "--" is only accepted with exec.
 The default decision includes the selection, project complexity and the classifier's
 confidence at each routing stage (cli, model, effort). --verbose prints indented
 JSON with every routing stage, chunk, candidate probability, complexity score,
@@ -61,18 +62,19 @@ type command struct {
 	help    string // the help text when --help was given
 	version bool
 	verbose bool
-	// model and effort are the --model/-m and --effort values until exec's native detection replaces
-	// the options; nativeFromFlags turns them into the request's native selections meanwhile.
-	model, effort string
+	// operand is the token right after exec when it is not an option: the CLI to pin if it names an
+	// enabled one, else the positional prompt. The config is needed to tell, so run resolves it.
+	operand string
+	// cliFlag is the --cli value for exec, which pins the provider; cliFlagSet records that it was given.
+	cliFlag    string
+	cliFlagSet bool
 }
 
 // parseArgs parses agrouter's command line. The error is a usage error, for one "agrouter:" line
-// and exit 2. Whether the exec CLI is configured and enabled is checked once the config is loaded.
+// and exit 2. Whether the exec operand names a CLI, and whether that CLI is enabled, is decided once the
+// config is loaded.
 func parseArgs(argv []string) (command, error) {
-	req, argv, err := execOperand(argv)
-	if err != nil {
-		return command{}, err
-	}
+	req, operand, argv := execOperand(argv)
 
 	flagArgv := argv
 	separator := false
@@ -84,7 +86,7 @@ func parseArgs(argv []string) (command, error) {
 	opts := newFlagSet(req, &seen)
 	parser := flags.NewParser(opts, flags.HelpFlag)
 	parser.Name = "agrouter"
-	parser.Usage = "[exec CLI] [OPTIONS] [-p TEXT] [--prompt-file PATH] [--doc PATH]... [PROMPT] [-- NATIVE ARGS...]"
+	parser.Usage = "[exec [CLI]] [OPTIONS] [-p TEXT] [--prompt-file PATH] [--doc PATH]... [PROMPT] [-- NATIVE ARGS...]"
 	parser.LongDescription = helpText
 
 	rest, err := parser.ParseArgs(escapeSlashes(flagArgv))
@@ -102,23 +104,61 @@ func parseArgs(argv []string) (command, error) {
 		return command{}, err
 	}
 
-	switch len(rest) {
-	case 0:
-	case 1:
+	// an operand is a positional too until the config says it is the CLI: then one more is the prompt
+	if len(rest) > 1 {
+		return command{}, errPositionals
+	}
+	if len(rest) == 1 {
 		req.Prompt = args.Optional{Value: unescape(rest[0]), Set: true}
-	default:
-		return command{}, errors.New("more than one positional argument: pass the prompt as one quoted argument")
 	}
 
-	if seen.cli && req.Mode != args.ModeExec {
-		req.CLI = seen.cliValue
+	cmd := command{req: req, verbose: opts.Verbose, operand: operand}
+	if seen.cli {
+		if req.Mode == args.ModeExec {
+			cmd.cliFlag, cmd.cliFlagSet = seen.cliValue, true
+		} else {
+			req.CLI = seen.cliValue
+		}
 	}
-	return command{req: req, verbose: opts.Verbose, model: seen.model, effort: seen.effort}, nil
+	return cmd, nil
+}
+
+// errPositionals is the usage error for a second positional argument.
+var errPositionals = errors.New("more than one positional argument: pass the prompt as one quoted argument")
+
+// resolveExec decides what the exec operand and --cli are once the enabled CLIs are known: the operand
+// is the CLI when it names one, else the positional prompt (a second positional is then too many);
+// --cli pins the provider too, and a different CLI than the operand is a conflict. An unknown pin is an error.
+func resolveExec(cmd command, enabled func(string) bool) error {
+	req := cmd.req
+	if req.Mode != args.ModeExec {
+		return nil
+	}
+	if cmd.operand != "" {
+		switch {
+		case enabled(cmd.operand):
+			req.CLI = cmd.operand
+		case req.Prompt.Set:
+			return errPositionals
+		default:
+			req.Prompt = args.Optional{Value: cmd.operand, Set: true}
+		}
+	}
+	switch {
+	case !cmd.cliFlagSet:
+	case req.CLI != "" && cmd.cliFlag != req.CLI:
+		return fmt.Errorf("--cli %s conflicts with exec %s: drop --cli", cmd.cliFlag, req.CLI)
+	case cmd.cliFlag != "" && !enabled(cmd.cliFlag):
+		return fmt.Errorf("exec --cli %s: not a configured, enabled CLI", cmd.cliFlag)
+	default:
+		req.CLI = cmd.cliFlag
+	}
+	return nil
 }
 
 // flagSet is agrouter's options. The func fields set the request as go-flags parses them.
 type flagSet struct {
-	CLI     func(string) `long:"cli" value-name:"NAME" unquote:"false" description:"restrict routing to one CLI; with exec, only the CLI after exec"`
+	CLI     func(string) `long:"cli" value-name:"NAME" unquote:"false" description:"restrict routing to one CLI; with exec, pins the CLI to run, like the CLI right after exec"`
 	APIKey  func(string) `long:"api-key" value-name:"KEY" unquote:"false" description:"the routing classifier's API key, overriding the selected provider's [classifier.<provider>] api_key; empty clears it (env AGROUTER_CLASSIFIER_API_KEY)"`
 	Version bool         `long:"version" description:"print agrouter's version and exit"`
 
@@ -127,8 +167,10 @@ type flagSet struct {
 	PromptFile func(string) `long:"prompt-file" value-name:"PATH" unquote:"false" description:"read prompt text from a file, after -p and the positional prompt"`
 	Doc        func(string) `long:"doc" value-name:"PATH" unquote:"false" description:"project doc for routing only, repeatable; never passed to the chosen CLI"`
 
-	Model  func(string) `short:"m" long:"model" value-name:"MODEL" unquote:"false" description:"use this model; the classifier chooses only its effort"`
-	Effort func(string) `long:"effort" value-name:"EFFORT" unquote:"false" description:"use this effort; the classifier chooses among options with it"`
+	// Model and Effort are no longer options: they are declared hidden so that every spelling is
+	// recognized and rejected with a hint instead of reading as an unknown flag or a prompt.
+	Model  func(string) `short:"m" long:"model" hidden:"true" value-name:"MODEL" unquote:"false"`
+	Effort func(string) `long:"effort" hidden:"true" value-name:"EFFORT" unquote:"false"`
 
 	Verbose bool `long:"verbose" description:"include full decision details (agrouter only; after -- it goes to the chosen CLI)"`
 }
@@ -139,8 +181,8 @@ type flagCounts struct {
 	cliValue   string // the last --cli value
 	prompt     int    // -p, --prompt and --print together
 	promptFile int
-	model      string // the last --model/-m value
-	effort     string // the last --effort value
+	model      bool // --model/-m was given, even empty
+	effort     bool // --effort was given, even empty
 }
 
 // newFlagSet binds the options to req, recording in seen what parseArgs checks afterwards.
@@ -161,37 +203,42 @@ func newFlagSet(req *args.Request, seen *flagCounts) *flagSet {
 		APIKey: func(v string) {
 			req.APIKey = args.Optional{Value: unescape(v), Set: true}
 		},
-		Model:  func(v string) { seen.model = unescape(v) },
-		Effort: func(v string) { seen.effort = unescape(v) },
+		Model:  func(string) { seen.model = true },
+		Effort: func(string) { seen.effort = true },
 	}
 }
 
-// execOperand starts the request: exec mode with its CLI when argv starts with "exec CLI", decision
-// mode otherwise. It returns the arguments after them.
-func execOperand(argv []string) (*args.Request, []string, error) {
+// execOperand starts the request: exec mode when argv starts with "exec", decision mode otherwise. When
+// the token after exec is not empty or an option it is returned as the operand, and the arguments after
+// it come back as the rest.
+func execOperand(argv []string) (*args.Request, string, []string) {
 	req := &args.Request{}
 	if len(argv) == 0 || argv[0] != execToken {
-		return req, argv, nil
+		return req, "", argv
 	}
+	req.Mode = args.ModeExec
 	if len(argv) < 2 || argv[1] == "" || strings.HasPrefix(argv[1], "-") {
-		return nil, nil, errors.New("exec needs the CLI to run: agrouter exec CLI [OPTIONS] [PROMPT] [-- NATIVE ARGS...]")
+		return req, "", argv[1:]
 	}
-	req.Mode, req.CLI = args.ModeExec, argv[1]
-	return req, argv[2:], nil
+	return req, argv[1], argv[2:]
 }
 
-// check reports the usage errors go-flags cannot see: repeated prompt options, "--" outside exec and
-// a --cli other than the exec CLI.
+// check reports the usage errors go-flags cannot see: repeated prompt options, the removed --model/-m and
+// --effort options, and "--" outside exec.
 func (c *flagCounts) check(req *args.Request, separator bool) error {
 	switch {
 	case c.prompt > 1:
 		return errors.New("-p/--prompt/--print given more than once: pass the prompt as one argument")
 	case c.promptFile > 1:
 		return errors.New("--prompt-file given more than once")
+	case c.model:
+		return errors.New(`--model/-m is not an agrouter option: routing chooses the model; with exec, ` +
+			`pass the CLI's own model flag after "--" (agrouter exec [CLI] ... -- --model X)`)
+	case c.effort:
+		return errors.New(`--effort is not an agrouter option: routing chooses the effort; with exec, ` +
+			`pass the CLI's own effort flag after "--" (agrouter exec [CLI] ... -- --effort X)`)
 	case separator && req.Mode != args.ModeExec:
-		return errors.New(`"--" is only accepted with exec: agrouter exec CLI [OPTIONS] [PROMPT] [-- NATIVE ARGS...]`)
-	case c.cli && req.Mode == args.ModeExec && c.cliValue != req.CLI:
-		return fmt.Errorf("--cli %s conflicts with exec %s: drop --cli", c.cliValue, req.CLI)
+		return errors.New(`"--" is only accepted with exec: agrouter exec [CLI] [OPTIONS] [PROMPT] [-- NATIVE ARGS...]`)
 	}
 	return nil
 }
