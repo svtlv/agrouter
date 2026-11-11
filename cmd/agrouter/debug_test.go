@@ -64,7 +64,7 @@ func TestDebug_Redaction(t *testing.T) {
 	if strings.ContainsAny(command, " \\") {
 		command = strconv.Quote(command)
 	}
-	assert.Equal(t, "command: "+command+" -p <2 raw argument(s)> --model fast-1 --effort low -- <prompt>", lines[12])
+	assert.Equal(t, "command: "+command+" -p --model fast-1 --effort low <2 raw argument(s)> -- <prompt>", lines[12])
 	assert.NotContains(t, r.stderr, secret)
 	assert.NotContains(t, r.stderr, "raw-two")
 	assert.NotContains(t, r.stderr, testKey)

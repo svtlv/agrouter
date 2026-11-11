@@ -436,7 +436,7 @@ func TestApp_RalphexClaudeMode(t *testing.T) {
 		assert.Equal(t, map[string]any{"cli": "claude", "model": "claude-opus-5-5", "effort": "high"}, selectionLog(t, r.stderr))
 		assert.Empty(t, r.stdout)
 		argv, stdin, _ := e.child()
-		assert.Equal(t, slices.Concat([]string{"-p"}, native, []string{"--model", "claude-opus-5-5", "--effort", "high"}), argv)
+		assert.Equal(t, slices.Concat([]string{"-p", "--model", "claude-opus-5-5", "--effort", "high"}, native), argv)
 		assert.Equal(t, task, string(stdin))
 		assert.Empty(t, e.jev.requests())
 	})
@@ -450,7 +450,7 @@ func TestApp_RalphexClaudeMode(t *testing.T) {
 		require.Equal(t, 0, r.code, r.stderr)
 		assert.Equal(t, map[string]any{"cli": "claude", "model": "claude-sonnet-5-5", "effort": "medium", "confidence": map[string]any{"model": 0.9, "effort": 0.9}}, selectionLog(t, r.stderr))
 		argv, stdin, environ := e.child()
-		assert.Equal(t, slices.Concat([]string{"-p"}, native, []string{"--model", "claude-sonnet-5-5", "--effort", "medium"}), argv)
+		assert.Equal(t, slices.Concat([]string{"-p", "--model", "claude-sonnet-5-5", "--effort", "medium"}, native), argv)
 		assert.Equal(t, task, string(stdin), "stdin replayed byte for byte, the prompt never in argv")
 		assert.Equal(t, repeated(`{"prompt":"implement task 3\nof the plan\n"}`, 2), e.jev.requests())
 		assert.Equal(t, []string{"model", "effort"}, e.jev.asked(), "exec fixes the cli stage")
@@ -482,7 +482,7 @@ func TestApp_RalphexCodexMode(t *testing.T) {
 		require.Equal(t, 0, r.code, r.stderr)
 		assert.Equal(t, map[string]any{"cli": "codex", "model": "gpt-6.1-sol", "effort": "medium", "confidence": map[string]any{"model": 0.9, "effort": 0.9}}, selectionLog(t, r.stderr))
 		argv, stdin, _ := e.child()
-		assert.Equal(t, slices.Concat([]string{"exec"}, native, []string{"--model", "gpt-6.1-sol", "-c", `model_reasoning_effort="medium"`}), argv)
+		assert.Equal(t, slices.Concat([]string{"exec", "--model", "gpt-6.1-sol", "-c", `model_reasoning_effort="medium"`}, native), argv)
 		assert.Equal(t, task, string(stdin))
 	})
 
@@ -495,7 +495,7 @@ func TestApp_RalphexCodexMode(t *testing.T) {
 		require.Equal(t, 0, r.code, r.stderr)
 		assert.Equal(t, map[string]any{"cli": "codex", "model": "gpt-6.1-sol", "effort": "xhigh"}, selectionLog(t, r.stderr))
 		argv, _, _ := e.child()
-		assert.Equal(t, []string{"exec", "-c", "stream_idle_timeout_ms=3600000", "--sandbox", "workspace-write", "--model", "gpt-6.1-sol", "-c", `model_reasoning_effort="xhigh"`}, argv)
+		assert.Equal(t, []string{"exec", "--model", "gpt-6.1-sol", "-c", `model_reasoning_effort="xhigh"`, "-c", "stream_idle_timeout_ms=3600000", "--sandbox", "workspace-write"}, argv)
 		assert.Empty(t, e.jev.requests())
 	})
 }
@@ -572,7 +572,7 @@ func TestApp_Decision(t *testing.T) {
 		require.Equal(t, 0, r.code, r.stderr)
 		assert.Equal(t, repeated(`{"prompt":"plan the migration\n\ndetails on stdin"}`, 2), e.jev.requests())
 		argv, _, _ := e.child()
-		assert.Equal(t, []string{"-p", "--add-dir", "RAWTOKEN", "--model", "claude-opus-5-5", "--effort", "high", "--", "plan the migration"}, argv)
+		assert.Equal(t, []string{"-p", "--model", "claude-opus-5-5", "--effort", "high", "--add-dir", "RAWTOKEN", "--", "plan the migration"}, argv)
 	})
 
 	t.Run("html characters are not escaped", func(t *testing.T) {
@@ -825,7 +825,7 @@ func TestApp_ExecVerbosity(t *testing.T) {
 			assert.NotContains(t, r.stderr, "project doc")
 			childArgv, _, _ := e.child()
 			if tc.child {
-				assert.Equal(t, []string{"-p", "--verbose", "--model", "fast-1", "--effort", "low", "--", "private task"}, childArgv)
+				assert.Equal(t, []string{"-p", "--model", "fast-1", "--effort", "low", "--verbose", "--", "private task"}, childArgv)
 			} else {
 				assert.NotContains(t, childArgv, "--verbose")
 			}
@@ -1360,11 +1360,7 @@ func TestApp_ExecNativeTail(t *testing.T) {
 
 			require.Equal(t, 0, r.code, r.stderr)
 			argv, stdin, _ := e.child()
-			prefix, tail := tc.native, []string(nil)
-			if i := slices.Index(prefix, "--"); i >= 0 {
-				prefix, tail = prefix[:i], prefix[i:]
-			}
-			assert.Equal(t, slices.Concat([]string{"-p"}, prefix, []string{"--model", "deep-1", "--effort", "low"}, tail), argv)
+			assert.Equal(t, slices.Concat([]string{"-p", "--model", "deep-1", "--effort", "low"}, tc.native), argv)
 			assert.Equal(t, "prompt on stdin\x00\r\n", string(stdin))
 			assert.Empty(t, e.jev.requests())
 		})
@@ -1378,17 +1374,17 @@ func TestApp_ExecNativeSelections(t *testing.T) {
 		jev               bool
 	}{
 		{name: "native model never constrains Jev", native: []string{"-m", "native-model"},
-			want: []string{"--model", "fast-1", "--effort", "low"}, jev: true},
+			want: []string{"--model", "fast-1", "--effort", "low", "-m", "native-model"}, jev: true},
 		{name: "caller short model wins", own: []string{"-m", "strong", "--effort=low"}, native: []string{"-m", "native-model"},
-			want: []string{"--model", "deep-1", "--effort", "low"}},
+			want: []string{"--model", "deep-1", "--effort", "low", "-m", "native-model"}},
 		{name: "caller model outside catalog wins", own: []string{"-m", "model1", "--effort=low"}, native: []string{"-m", "model2", "--effort=high"},
-			want: []string{"--model", "model1", "--effort", "low"}},
-		{name: "equals and attached selections replaced", native: []string{"--model=native", "-mother", "--effort=native", "--json"},
-			want: []string{"--json", "--model", "fast-1", "--effort", "low"}, jev: true},
+			want: []string{"--model", "model1", "--effort", "low", "-m", "model2", "--effort=high"}},
+		{name: "equals and attached selections pass through", native: []string{"--model=native", "-mother", "--effort=native", "--json"},
+			want: []string{"--model", "fast-1", "--effort", "low", "--model=native", "-mother", "--effort=native", "--json"}, jev: true},
 		{name: "native settings and config kept", native: []string{"--profile", "work", "-c", `model="native"`},
-			want: []string{"--profile", "work", "-c", `model="native"`, "--model", "fast-1", "--effort", "low"}, jev: true},
+			want: []string{"--model", "fast-1", "--effort", "low", "--profile", "work", "-c", `model="native"`}, jev: true},
 		{name: "selection-shaped positionals after child separator", native: []string{"--json", "--", "--model", "text"},
-			want: []string{"--json", "--model", "fast-1", "--effort", "low", "--", "--model", "text"}, jev: true},
+			want: []string{"--model", "fast-1", "--effort", "low", "--json", "--", "--model", "text"}, jev: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1478,7 +1474,7 @@ func TestApp_ConfigDrivenNames(t *testing.T) {
 			assert.Equal(t, map[string]any{"cli": tc.cli, "model": tc.model, "effort": tc.effort,
 				"confidence": map[string]any{"model": 0.9, "effort": 0.9}}, selectionLog(t, log))
 			got, gotStdin, _ := e.child()
-			assert.Equal(t, []string{"run", "--quiet", "--events", "ndjson", "--mode", "read", "--llm", tc.model, "--think=" + tc.effort, "--", "do it now"}, got)
+			assert.Equal(t, []string{"run", "--quiet", "--llm", tc.model, "--think=" + tc.effort, "--events", "ndjson", "--mode", "read", "--", "do it now"}, got)
 			assert.Equal(t, stdin, string(gotStdin))
 			require.Len(t, e.jev.requests(), 2, "one CLI: model and effort asked")
 

@@ -270,7 +270,7 @@ func TestApp_ExecPreflightIgnoresNativeContext(t *testing.T) {
 			require.Equal(t, 0, r.code, r.stderr)
 			assert.NotContains(t, r.stderr, "availability unknown")
 			child, _, _ := e.child()
-			assert.Equal(t, slices.Concat([]string{"-p"}, tc.native, []string{"--model", "fast-1", "--effort", "low", "--", "fix it"}), child)
+			assert.Equal(t, slices.Concat([]string{"-p", "--model", "fast-1", "--effort", "low"}, tc.native, []string{"--", "fix it"}), child)
 			assert.Len(t, checker.CheckCalls(), 1)
 		})
 	}
