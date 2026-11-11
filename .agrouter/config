@@ -111,11 +111,12 @@ model           = gpt-6-luna
 request_tokens  = 250000
 bytes_per_token = 3
 
-# how agrouter invokes each CLI. argv = command + exec_args + native options + model_args
-# + effort_args + any native "--" and its remaining tokens + prompt_args. Only {model}, {effort}
-# and {prompt} are placeholders, each only in its own key; model_args/effort_args are left out
-# when the value is left to the CLI. Agrouter replaces native --model/-m and --effort selections;
-# other native arguments pass through unchanged. Emit selections after native options so they win.
+# how agrouter invokes each CLI. argv = command + exec_args + model_args + effort_args + the whole
+# native argument list, unchanged + prompt_args. Only {model}, {effort} and {prompt} are placeholders,
+# each only in its own key. model_args/effort_args are generated only for a field the native arguments
+# did not set, and are left out when routing delegates the value to the CLI. The same templates define
+# which native spellings count as a model/effort selection: the exact token sequence, the --flag=value
+# form of a long flag, and optional quotes around the value. Other spellings pass through untouched.
 # exec_args, model_args and prompt_args are required; effort_args when a model has efforts.
 #
 # [cli.<name>]: one CLI. names cannot contain ".".
@@ -189,7 +190,8 @@ enabled               = true
 command               = codex
 description           = Codex CLI (OpenAI). Agentic coding CLI with sandboxed shell, apply_patch and multi-agent spawn_agent.
 exec_args             = ["exec"]
-model_args            = ["--model", "{model}"]
+# the config layer, not --model: this is ralphex's spelling, and codex exec rejects a repeated --model
+model_args            = ["-c", "model=\"{model}\""]
 # -c values are TOML; the quotes are part of the token (no shell)
 effort_args           = ["-c", "model_reasoning_effort=\"{effort}\""]
 # codex exec reads stdin when no prompt argument is given, and appends it as a <stdin> block when one is

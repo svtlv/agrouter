@@ -430,13 +430,13 @@ Compatibility notes:
 
 ### Task 9: Verify acceptance criteria
 
-- [ ] native argv is never modified; generated args never duplicate a recognized native selection
-- [ ] each routing case asks only the stages it should; model-only and effort-only overrides work, pinned and unpinned
-- [ ] `exec <cli>`, `exec --cli`, provider-less exec and their conflicts behave per the command-line table
-- [ ] removed options are rejected with the hint; decision mode rejects `--`; stdin replay; child exit code authoritative
-- [ ] `grep` for leftover `nativeOptions`, `sourceCaller`, `effortDropped`, `Request.Model`, and "reserved"/"replaces native"/"exec needs the CLI" wording in code and docs
-- [ ] `make test` and `make lint`; also lint `GOOS=linux`, `GOOS=darwin` and `--build-tags=eval` (golangci-lint v2.14.0)
-- [ ] coverage stays at 80%+ per package
+- [x] native argv is never modified; generated args never duplicate a recognized native selection
+- [x] each routing case asks only the stages it should; model-only and effort-only overrides work, pinned and unpinned
+- [x] `exec <cli>`, `exec --cli`, provider-less exec and their conflicts behave per the command-line table
+- [x] removed options are rejected with the hint; decision mode rejects `--`; stdin replay; child exit code authoritative
+- [x] `grep` for leftover `nativeOptions`, `sourceCaller`, `effortDropped`, `Request.Model`, and "reserved"/"replaces native"/"exec needs the CLI" wording in code and docs (⚠️ code is clean; README, AGENTS.md and CLAUDE.md still carry the old wording and are rewritten in Task 10; the tracked `.agrouter/config` comment and codex `model_args` were synced with the embedded defaults here)
+- [x] `make test` and `make lint`; also lint `GOOS=linux`, `GOOS=darwin` and `--build-tags=eval` (golangci-lint v2.14.0; Windows `go vet` also clean)
+- [x] coverage stays at 80%+ per package
 
 ### Task 10: [Final] Update documentation
 
