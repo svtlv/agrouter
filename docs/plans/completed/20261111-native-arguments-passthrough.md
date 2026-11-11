@@ -440,16 +440,16 @@ Compatibility notes:
 
 ### Task 10: [Final] Update documentation
 
-- [ ] `README.md` Usage: `agrouter exec [<cli>] [options] [prompt] [-- native args...]`; operand-or-prompt rule; `--cli` pins in exec; remove the `-m`/`--model`/`--effort` row; the `-- native args` row says they pass unchanged and the CLI's model/effort flags (per its templates) fix those fields and can imply the CLI
-- [ ] `README.md` Staged routing: skip table rows refer to native model/effort; Failure and null reasons / Exec fallback: native wording, exit 2 when exec cannot decide between CLIs, remove `effort_not_passable`
-- [ ] `README.md` Exec readiness: probing every candidate CLI without a provider, block lines when all are blocked
-- [ ] `README.md` Invocation descriptors: new argv formula; templates double as recognized native spellings (exact, `--flag=value`, optional quotes); unrecognized spellings such as Codex `-m` pass through; keep the duplicate-separator paragraph
-- [ ] `README.md` Migrating: rows for removed `--model`/`-m`/`--effort` and for native selections that are now honored
-- [ ] `README.md` ralphex: the backlog's example config (`task_model = opus:`, `review_model = opus:medium`); Codex `codex_model`/`codex_reasoning_effort` are now honored, so keep them empty to let the classifier route Codex (ralphex's own defaults would otherwise fix both); drop any temporarily pinned flags; explain ralphex's fallback (`review_model` empty falls back to `task_model`, `:` emits nothing)
-- [ ] `README.md` Exit codes: exec cannot-decide with more than one CLI left
-- [ ] `AGENTS.md` and `CLAUDE.md` (identical): rewrite the Invocation rule (operand optional, `--cli` pins in exec, native model/effort recognized by the CLI's templates and never modified), the staged-routing "fixed by `--model`/`--effort`" clause, the "no per-CLI argument mappings" rule, the readiness/exit-code rules and the reserved-spelling sentence; update the `pkg/args` layout line
-- [ ] delete `docs/backlog/ralphex-model-effort-overrides-discarded.md`
-- [ ] move this plan to `docs/plans/completed/`
+- [x] `README.md` Usage: `agrouter exec [<cli>] [options] [prompt] [-- native args...]`; operand-or-prompt rule; `--cli` pins in exec; remove the `-m`/`--model`/`--effort` row; the `-- native args` row says they pass unchanged and the CLI's model/effort flags (per its templates) fix those fields and can imply the CLI
+- [x] `README.md` Staged routing: skip table rows refer to native model/effort; Failure and null reasons / Exec fallback: native wording, exit 2 when exec cannot decide between CLIs, remove `effort_not_passable`
+- [x] `README.md` Exec readiness: probing every candidate CLI without a provider, block lines when all are blocked
+- [x] `README.md` Invocation descriptors: new argv formula; templates double as recognized native spellings (exact, `--flag=value`, optional quotes); unrecognized spellings such as Codex `-m` pass through; keep the duplicate-separator paragraph
+- [x] `README.md` Migrating: rows for removed `--model`/`-m`/`--effort` and for native selections that are now honored
+- [x] `README.md` ralphex: the backlog's example config (`task_model = opus:`, `review_model = opus:medium`); Codex `codex_model`/`codex_reasoning_effort` are now honored, so keep them empty to let the classifier route Codex (ralphex's own defaults would otherwise fix both); drop any temporarily pinned flags; explain ralphex's fallback (`review_model` empty falls back to `task_model`, `:` emits nothing)
+- [x] `README.md` Exit codes: exec cannot-decide with more than one CLI left
+- [x] `AGENTS.md` and `CLAUDE.md` (identical): rewrite the Invocation rule (operand optional, `--cli` pins in exec, native model/effort recognized by the CLI's templates and never modified), the staged-routing "fixed by `--model`/`--effort`" clause, the "no per-CLI argument mappings" rule, the readiness/exit-code rules and the reserved-spelling sentence; update the `pkg/args` layout line
+- [x] delete `docs/backlog/ralphex-model-effort-overrides-discarded.md`
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 
