@@ -410,12 +410,12 @@ Compatibility notes:
 **Files:**
 - Modify: `cmd/agrouter/app_test.go` (or a new `cmd/agrouter/native_test.go`)
 
-- [ ] pinned provider: every row of the ralphex table in both spellings against the helper-process fake CLI, using the exact ralphex argv shapes (Claude with trailing `--print`; Codex with `features.multi_agent`, `--sandbox`, `stream_idle_timeout_ms`, `project_doc` around the model/effort `-c`); assert exact argv and classifier requests per stage
-- [ ] different settings per phase (task `opus:`, review `opus:medium`) produce different argv in two runs
-- [ ] no provider: `exec "fix" -- --model <claude alias>` runs the Claude-like CLI without cli/model stages; `exec "fix" -- --verbose` asks all three stages and passes `--verbose` to the winner; classifier failure with two CLIs left is exit 2 with nothing started
-- [ ] stdin-only call with native args: stdin replayed byte-identical, no prompt_args emitted
-- [ ] invalid native args (unknown flag, missing value, unknown model) reach the fake child; the child's exit code is agrouter's exit code
-- [ ] run `make test` - must pass before task 8
+- [x] pinned provider: every row of the ralphex table in both spellings against the helper-process fake CLI, using the exact ralphex argv shapes (Claude with trailing `--print`; Codex with `features.multi_agent`, `--sandbox`, `stream_idle_timeout_ms`, `project_doc` around the model/effort `-c`); assert exact argv and classifier requests per stage
+- [x] different settings per phase (task `opus:`, review `opus:medium`) produce different argv in two runs
+- [x] no provider: `exec "fix" -- --model <claude alias>` runs the Claude-like CLI without cli/model stages; `exec "fix" -- --verbose` asks all three stages and passes `--verbose` to the winner; classifier failure with two CLIs left is exit 2 with nothing started
+- [x] stdin-only call with native args: stdin replayed byte-identical, no prompt_args emitted
+- [x] invalid native args (unknown flag, missing value, unknown model) reach the fake child; the child's exit code is agrouter's exit code
+- [x] run `make test` - must pass before task 8
 
 ### Task 8: Codex descriptor uses the config layer for the model
 
