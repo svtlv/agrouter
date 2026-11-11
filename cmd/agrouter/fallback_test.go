@@ -383,7 +383,7 @@ func TestApp_ExecNativeReporting(t *testing.T) {
 // reported; any other native token stays out of stderr, the console log and debug output.
 func TestApp_ExecNativeTokensNotLogged(t *testing.T) {
 	const (
-		nativeFlag  = "--secret-flag-zq"
+		nativeFlag = "--secret-flag-zq"
 		nativeText = "secret-value-zq"
 	)
 	for _, debug := range []string{"", "1"} {

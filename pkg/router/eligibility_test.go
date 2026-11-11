@@ -128,20 +128,20 @@ func TestEligibleModel(t *testing.T) {
 		e := Eligible(cat, &args.Request{Native: natAll("gpt-9", "")})
 		assert.True(t, e.ModelPassthrough)
 		assert.Equal(t, []catalog.Option{
-			{ID: "claude", CLI: "claude", Name: "gpt-9"},
-			{ID: "codex", CLI: "codex", Name: "gpt-9"},
+			{ID: "claude@", CLI: "claude", Name: "gpt-9"},
+			{ID: "codex@", CLI: "codex", Name: "gpt-9"},
 		}, e.Options)
 	})
 
 	t.Run("outside the catalog with --cli", func(t *testing.T) {
 		e := Eligible(cat, &args.Request{CLI: "codex", Native: natAll("gpt-9", "")})
-		assert.Equal(t, []catalog.Option{{ID: "codex", CLI: "codex", Name: "gpt-9"}}, e.Options)
+		assert.Equal(t, []catalog.Option{{ID: "codex@", CLI: "codex", Name: "gpt-9"}}, e.Options)
 	})
 
 	t.Run("a catalog model of a CLI --cli dropped is passed through by name", func(t *testing.T) {
 		e := Eligible(cat, &args.Request{CLI: "claude", Native: natAll("gpt-6.1-sol", "")})
 		assert.True(t, e.ModelPassthrough)
-		assert.Equal(t, []catalog.Option{{ID: "claude", CLI: "claude", Name: "gpt-6.1-sol"}}, e.Options)
+		assert.Equal(t, []catalog.Option{{ID: "claude@", CLI: "claude", Name: "gpt-6.1-sol"}}, e.Options)
 	})
 }
 
@@ -224,21 +224,21 @@ func TestEligibilityExclude(t *testing.T) {
 	cases := []struct {
 		name    string
 		req     *args.Request
-		exclude []string
+		exclude map[string][]string // cli -> ids
 		want    []string
 		dropped []Drop
 	}{
 		{name: "nothing to exclude", exclude: nil,
 			want: []string{"strong@low", "strong@high", "fast", "worker@low", "worker@high"}},
-		{name: "one model of a cli", exclude: []string{"strong@low", "strong@high"},
+		{name: "one model of a cli", exclude: map[string][]string{"alpha": {"strong@low", "strong@high"}},
 			want: []string{"fast", "worker@low", "worker@high"}},
-		{name: "every option of a cli is a drop", exclude: []string{"worker@low", "worker@high"},
+		{name: "every option of a cli is a drop", exclude: map[string][]string{"beta": {"worker@low", "worker@high"}},
 			want: []string{"strong@low", "strong@high", "fast"}, dropped: []Drop{{CLI: "beta", Reason: "unavailable"}}},
-		{name: "unknown ids are ignored", exclude: []string{"missing"},
+		{name: "unknown ids are ignored", exclude: map[string][]string{"alpha": {"missing"}},
 			want: []string{"strong@low", "strong@high", "fast", "worker@low", "worker@high"}},
-		{name: "a fixed cli is never broadened", req: &args.Request{CLI: "alpha"}, exclude: []string{"strong@low", "strong@high"},
+		{name: "a fixed cli is never broadened", req: &args.Request{CLI: "alpha"}, exclude: map[string][]string{"alpha": {"strong@low", "strong@high"}},
 			want: []string{"fast"}, dropped: []Drop{{CLI: "beta", Reason: "--cli alpha"}}},
-		{name: "a passed-through model", req: &args.Request{CLI: "beta", Native: natAll("other-model", "")}, exclude: []string{"beta"},
+		{name: "a passed-through model", req: &args.Request{CLI: "beta", Native: natAll("other-model", "")}, exclude: map[string][]string{"beta": {catalog.PassthroughID("beta")}},
 			want: []string{}, dropped: []Drop{{CLI: "alpha", Reason: "--cli beta"}, {CLI: "beta", Reason: "unavailable"}}},
 	}
 	for _, tc := range cases {
@@ -248,7 +248,9 @@ func TestEligibilityExclude(t *testing.T) {
 				req = &args.Request{}
 			}
 			e := Eligible(cat, req)
-			e.Exclude(tc.exclude)
+			for cli, ids := range tc.exclude {
+				e.Exclude(cli, ids)
+			}
 			assert.Equal(t, tc.want, append([]string{}, ids(e.Options)...))
 			assert.Equal(t, tc.dropped, e.Dropped)
 		})
@@ -259,7 +261,7 @@ func TestEligibilityExcludeKeepsOriginal(t *testing.T) {
 	_, cat := requestFixture(t)
 	e := Eligible(cat, &args.Request{})
 	before := e.Options
-	e.Exclude([]string{"fast"})
+	e.Exclude("alpha", []string{"fast"})
 	assert.Len(t, before, 5, "the slice handed out earlier is not rewritten")
 	assert.Len(t, e.Options, 4)
 }
@@ -286,9 +288,9 @@ func TestEligibleNativeSelection(t *testing.T) {
 		{name: "catalog effort only", req: &args.Request{Native: natOf("alpha", "", "high")},
 			want: []string{"strong@high"}, dropped: []Drop{{CLI: "beta", Reason: "native effort high"}}},
 		{name: "model outside the catalog", req: &args.Request{Native: natOf("alpha", "gpt-x", "")},
-			want: []string{"alpha"}, modelPass: true, dropped: []Drop{{CLI: "beta", Reason: "native model gpt-x"}}},
+			want: []string{"alpha@"}, modelPass: true, dropped: []Drop{{CLI: "beta", Reason: "native model gpt-x"}}},
 		{name: "model and effort outside the catalog", req: &args.Request{Native: natOf("alpha", "gpt-x", "turbo")},
-			want: []string{"alpha"}, modelPass: true, effortPass: true, efforts: map[string]string{"alpha": "turbo"},
+			want: []string{"alpha@"}, modelPass: true, effortPass: true, efforts: map[string]string{"alpha@": "turbo"},
 			dropped: []Drop{{CLI: "beta", Reason: "native model gpt-x, effort turbo"}}},
 		{name: "effort outside the catalog keeps each model once", req: &args.Request{Native: natOf("alpha", "", "turbo")},
 			want: []string{"strong", "fast"}, effortPass: true,
@@ -298,7 +300,7 @@ func TestEligibleNativeSelection(t *testing.T) {
 			want: []string{"strong"}, effortPass: true, efforts: map[string]string{"strong": "turbo"},
 			dropped: []Drop{{CLI: "beta", Reason: "native model strong-model, effort turbo"}}},
 		{name: "a model of another CLI is passed through by name", req: &args.Request{Native: natOf("alpha", "worker-model", "")},
-			want: []string{"alpha"}, modelPass: true, dropped: []Drop{{CLI: "beta", Reason: "native model worker-model"}}},
+			want: []string{"alpha@"}, modelPass: true, dropped: []Drop{{CLI: "beta", Reason: "native model worker-model"}}},
 		{name: "a shared template keeps both CLIs for the cli stage", req: &args.Request{Native: natAll("", "high")},
 			want: []string{"strong@high", "worker@high"}},
 		{name: "a catalog model read through a shared template pins its CLI", req: &args.Request{Native: natAll("strong-model", "")},
@@ -348,4 +350,38 @@ func TestEligibleNativeEffortStaysWithItsCLI(t *testing.T) {
 			assert.Equal(t, "high", e.EffortFor(o), o.ID)
 		}
 	}
+}
+
+func TestEligiblePassthroughIDNeverCollides(t *testing.T) {
+	_, cat := requestFixture(t)
+	e := Eligible(cat, &args.Request{CLI: "beta", Native: natAll("other-model", "")})
+	require.Len(t, e.Options, 1)
+	id := e.Options[0].ID
+	assert.Equal(t, catalog.PassthroughID("beta"), id)
+	for _, o := range cat.Options {
+		assert.NotEqual(t, id, o.ID, "a catalog option id equals the pass-through id")
+	}
+	// excluding a catalog option named like the cli leaves the other CLI's pass-through option
+	e = Eligible(cat, &args.Request{Native: map[string]args.Selection{"alpha": {Model: "other-model"}}})
+	e.Exclude("alpha", []string{"alpha"})
+	assert.Equal(t, []string{catalog.PassthroughID("alpha")}, ids(e.Options))
+}
+
+func TestEligibilityExcludeIsScopedToCLI(t *testing.T) {
+	_, cat := requestFixture(t)
+	// alpha's native model is outside the catalog, beta only fixes an effort; both carry an option
+	// whose id can be spelled the same way, so only the CLI tells them apart
+	e := Eligible(cat, &args.Request{Native: map[string]args.Selection{
+		"alpha": {Model: "other-model"},
+		"beta":  {Effort: "low"},
+	}})
+	require.Contains(t, catalog.CLIs(e.Options), "alpha")
+	e.Exclude("beta", ids(catalog.ByCLI(e.Options, "beta")))
+	assert.NotEmpty(t, catalog.ByCLI(e.Options, "alpha"), "blocking beta must not remove alpha")
+	assert.Empty(t, catalog.ByCLI(e.Options, "beta"))
+
+	// the same id under another CLI is not touched
+	e = Eligible(cat, &args.Request{})
+	e.Exclude("beta", []string{"strong@low"})
+	assert.Contains(t, ids(e.Options), "strong@low")
 }

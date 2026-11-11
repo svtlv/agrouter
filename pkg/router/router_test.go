@@ -97,7 +97,7 @@ func TestRouteSingleOptionPassthrough(t *testing.T) {
 	el := Eligible(cat, req)
 	d, err := r.Route(context.Background(), el, req, captured("x"))
 	require.NoError(t, err)
-	assert.Equal(t, Decision{CLI: "codex", Model: "gpt-9", Effort: "turbo", OptionID: "codex", Pinned: true,
+	assert.Equal(t, Decision{CLI: "codex", Model: "gpt-9", Effort: "turbo", OptionID: "codex@", Pinned: true,
 		Stages: []Stage{{Level: LevelCLI, Choice: "codex", Skipped: true}, {Level: LevelModel, Choice: "gpt-9", Skipped: true},
 			{Level: LevelEffort, Choice: "turbo", Skipped: true}}}, d)
 	assert.Equal(t, []string{"codex", "exec", "-c", `model="gpt-9"`, "-c", `model_reasoning_effort="turbo"`},
@@ -475,7 +475,7 @@ func TestRouteNoEligible(t *testing.T) {
 	r := newRouter(t, cfg, cat, client)
 	req := &args.Request{CLI: "alpha"}
 	el := Eligible(cat, req)
-	el.Exclude(ids(el.Options))
+	el.Exclude("alpha", ids(el.Options))
 
 	d, err := r.Route(context.Background(), el, req, &prompt.Result{Prompt: "x", Docs: []string{"doc"}})
 	require.ErrorIs(t, err, ErrNoEligible)
@@ -495,7 +495,7 @@ func TestRouteAfterExcludeSkipsClassifierForOneOption(t *testing.T) {
 	r := newRouter(t, cfg, cat, &mocks.ClassifierMock{})
 	req := &args.Request{CLI: "alpha"}
 	el := Eligible(cat, req)
-	el.Exclude([]string{"strong@low", "strong@high"})
+	el.Exclude("alpha", []string{"strong@low", "strong@high"})
 
 	d, err := r.Route(context.Background(), el, req, captured("x"))
 	require.NoError(t, err)

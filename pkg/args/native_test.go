@@ -53,6 +53,14 @@ func TestNativeSelection(t *testing.T) {
 		{name: "lone placeholder never matches", cli: config.CLI{ModelArgs: []string{"{model}"}}, raw: []string{"x", "y"}},
 		{name: "suffix tokens must follow", cli: config.CLI{ModelArgs: []string{"--model", "{model}", "--yes"}}, raw: []string{"--model", "a", "--no", "--model", "b", "--yes"}, want: Selection{Model: "b"}},
 		{name: "value with equals sign", cli: claudeLike, raw: []string{"--model=a=b"}, want: Selection{Model: "a=b"}},
+		{name: "repeated placeholder", cli: config.CLI{ModelArgs: []string{"--model", "{model}", "--fallback-model", "{model}"}},
+			raw: []string{"--model", "a", "--fallback-model", "a"}, want: Selection{Model: "a"}},
+		{name: "repeated placeholder with different values", cli: config.CLI{ModelArgs: []string{"--model", "{model}", "--fallback-model", "{model}"}},
+			raw: []string{"--model", "a", "--fallback-model", "b"}},
+		{name: "repeated placeholder last match wins", cli: config.CLI{ModelArgs: []string{"--model", "{model}", "--fallback-model", "{model}"}},
+			raw: []string{"--model", "a", "--fallback-model", "a", "--model", "b", "--fallback-model", "b"}, want: Selection{Model: "b"}},
+		{name: "repeated placeholder in different token shapes", cli: config.CLI{ModelArgs: []string{"-c", `model="{model}"`, "--fallback", "{model}"}},
+			raw: []string{"-c", "model=a", "--fallback", "a"}, want: Selection{Model: "a"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

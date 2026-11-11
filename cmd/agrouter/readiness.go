@@ -70,14 +70,14 @@ func (a *app) applyPreflights(models []config.Model, pfs preflights, el *router.
 	pfs.wait()
 	results := make(map[string]*checked, len(pfs))
 	var (
-		excluded []string
+		excluded = map[string][]string{} // cli -> ids of its options to drop
 		blocks   preflightErrors
 	)
 	for _, p := range pfs {
 		opts := catalog.ByCLI(el.Options, p.cli.Name)
 		ev := readiness.Evaluate(p.report, opts, models, unknownPolicy(p.cli), a.clock())
 		a.debug.readiness(p.report, ev)
-		excluded = append(excluded, ev.Excluded...)
+		excluded[p.cli.Name] = ev.Excluded
 		if ev.Blocked != nil {
 			blocks = append(blocks, preflightBlock(p.cli, *ev.Blocked))
 			continue
@@ -90,7 +90,9 @@ func (a *app) applyPreflights(models []config.Model, pfs preflights, el *router.
 	if len(results) == 0 {
 		return nil, blocks
 	}
-	el.Exclude(excluded)
+	for _, p := range pfs {
+		el.Exclude(p.cli.Name, excluded[p.cli.Name])
+	}
 	return results, nil
 }
 

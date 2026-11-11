@@ -28,21 +28,16 @@ func NativeSelection(cli config.CLI, raw []string) Selection {
 }
 
 // templateValue returns the value the last match of tmpl in raw carries for placeholder, or "". A
-// template matches as its exact token sequence, with the value in the placeholder's token; a template
-// of a long flag and the bare placeholder also matches the attached "--flag=value" form, and quotes
-// around the placeholder inside a token are optional in the native text.
+// template matches as its exact token sequence, with the value in each placeholder token; when the
+// placeholder repeats, every occurrence must carry the same value. A template of a long flag and the
+// bare placeholder also matches the attached "--flag=value" form, and quotes around the placeholder
+// inside a token are optional in the native text.
 func templateValue(tmpl []string, placeholder string, raw []string) string {
-	at := slices.IndexFunc(tmpl, func(tok string) bool { return strings.Contains(tok, placeholder) })
-	if at < 0 || strings.Count(tmpl[at], placeholder) != 1 {
-		return ""
+	slots, ok := placeholderSlots(tmpl, placeholder)
+	if !ok || len(tmpl) == 1 && slots[0].bare {
+		return "" // no placeholder, or a lone one that would match every token
 	}
-	before, after, _ := strings.Cut(tmpl[at], placeholder)
-	bare := before == "" && after == ""
-	if bare && len(tmpl) == 1 {
-		return "" // a lone placeholder would match every token
-	}
-	variants := tokenVariants(before, after)
-	attached := bare && at == 1 && len(tmpl) == 2 && strings.HasPrefix(tmpl[0], "--")
+	attached := len(slots) == 1 && slots[0].bare && slots[0].at == 1 && len(tmpl) == 2 && strings.HasPrefix(tmpl[0], "--")
 	value := ""
 	for i := range raw {
 		if attached {
@@ -50,16 +45,73 @@ func templateValue(tmpl []string, placeholder string, raw []string) string {
 				value = v
 			}
 		}
-		if i+len(tmpl) > len(raw) || !slices.Equal(raw[i:i+at], tmpl[:at]) ||
-			!slices.Equal(raw[i+at+1:i+len(tmpl)], tmpl[at+1:]) {
+		if i+len(tmpl) > len(raw) {
 			continue
 		}
-		// a bare value never starts with "-": it is the next option, so the template's value is missing
-		if v, ok := tokenValue(raw[i+at], variants); ok && (!bare || !strings.HasPrefix(v, "-")) {
+		window := raw[i : i+len(tmpl)]
+		if v, ok := matchAt(tmpl, window, placeholder, func(j int) (string, bool) { return slotValue(slots, j, window[j]) }); ok {
 			value = v
 		}
 	}
 	return value
+}
+
+// slot is a template token that holds the placeholder, with the literal text around it.
+type slot struct {
+	at       int
+	bare     bool // the token is the placeholder alone
+	variants [][2]string
+}
+
+// placeholderSlots returns the template tokens that hold the placeholder; false when there is none or a
+// token holds it twice.
+func placeholderSlots(tmpl []string, placeholder string) ([]slot, bool) {
+	var slots []slot
+	for i, tok := range tmpl {
+		switch n := strings.Count(tok, placeholder); {
+		case n == 0:
+		case n > 1:
+			return nil, false
+		default:
+			before, after, _ := strings.Cut(tok, placeholder)
+			slots = append(slots, slot{at: i, bare: before == "" && after == "", variants: tokenVariants(before, after)})
+		}
+	}
+	return slots, len(slots) > 0
+}
+
+// slotValue extracts the value of the slot at template index j from tok. A bare value never starts with
+// "-": it is the next option, so the template's value is missing.
+func slotValue(slots []slot, j int, tok string) (string, bool) {
+	for _, sl := range slots {
+		if sl.at != j {
+			continue
+		}
+		v, ok := tokenValue(tok, sl.variants)
+		return v, ok && (!sl.bare || !strings.HasPrefix(v, "-"))
+	}
+	return "", false
+}
+
+// matchAt reports the value when window matches tmpl: literal tokens equal, and extract yielding one
+// and the same value for every token that holds the placeholder.
+func matchAt(tmpl, window []string, placeholder string, extract func(j int) (string, bool)) (string, bool) {
+	value := ""
+	found := false
+	for j, tok := range tmpl {
+		if !strings.Contains(tok, placeholder) {
+			if window[j] != tok {
+				return "", false
+			}
+			continue
+		}
+		v, ok := extract(j)
+		if !ok || found && v != value {
+			return "", false
+		}
+		value, found = v, true
+	}
+	return value, found
 }
 
 // tokenVariants returns the literal text around the placeholder to try, quoted form first; when the

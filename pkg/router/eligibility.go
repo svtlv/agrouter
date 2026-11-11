@@ -166,7 +166,7 @@ func (e *Eligibility) narrow(cat *catalog.Catalog, cli string, sel args.Selectio
 			if m, ok := cat.LookupModel(sel.Model); ok {
 				name = m.Name
 			}
-			opts = []catalog.Option{{ID: cli, CLI: cli, Name: name}}
+			opts = []catalog.Option{{ID: catalog.PassthroughID(cli), CLI: cli, Name: name}}
 			modelPassed = true
 			e.ModelPassthrough = true
 		}
@@ -198,13 +198,16 @@ func (e *Eligibility) passEffort(cli, effort string) {
 	e.EffortPassthrough = true
 }
 
-// Exclude removes the options with the given ids, such as those the exec CLI cannot run now. It
-// never adds or broadens an option, and may leave none: Route then returns ErrNoEligible.
-func (e *Eligibility) Exclude(ids []string) {
+// Exclude removes cli's options with the given ids, such as those the exec CLI cannot run now. Ids
+// are only unique within one CLI, so the CLI scopes the match: another CLI's option with the same id
+// stays. It never adds or broadens an option, and may leave none: Route then returns ErrNoEligible.
+func (e *Eligibility) Exclude(cli string, ids []string) {
 	if len(ids) == 0 {
 		return
 	}
-	kept := slices.DeleteFunc(slices.Clone(e.Options), func(o catalog.Option) bool { return slices.Contains(ids, o.ID) })
+	kept := slices.DeleteFunc(slices.Clone(e.Options), func(o catalog.Option) bool {
+		return o.CLI == cli && slices.Contains(ids, o.ID)
+	})
 	e.drop(kept, "unavailable")
 	e.Options = kept
 }
