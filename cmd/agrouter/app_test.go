@@ -904,9 +904,12 @@ func TestApp_Errors(t *testing.T) {
 		e.globalConfig(syntheticCLIs(t) + "\n[cli.beta]\nenabled = false\n")
 		for _, name := range []string{"nope", "beta"} {
 			oneLine(t, e.run([]string{"exec", "--cli", name, "fix it"}, nil), "agrouter: exec --cli "+name+": not a configured, enabled CLI")
-			// an operand that is no enabled CLI is the prompt, so a second positional is one too many
-			oneLine(t, e.run([]string{"exec", name, "fix it"}, nil), "agrouter: more than one positional argument")
 		}
+		// an operand that is no configured CLI is the prompt, so a second positional is one too many
+		oneLine(t, e.run([]string{"exec", "nope", "fix it"}, nil), "agrouter: more than one positional argument")
+		// a disabled CLI is still a CLI name, never the prompt, with or without another prompt
+		oneLine(t, e.run([]string{"exec", "beta", "fix it"}, nil), "agrouter: exec beta: not a configured, enabled CLI")
+		oneLine(t, e.run([]string{"exec", "beta"}, strings.NewReader("fix it")), "agrouter: exec beta: not a configured, enabled CLI")
 		assert.Empty(t, e.jev.requests())
 		assert.NoFileExists(t, filepath.Join(e.out, "argv.json"), "the child must not run")
 	})

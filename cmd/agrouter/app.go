@@ -162,7 +162,8 @@ func (a *app) run(argv []string) int {
 	a.startLog(mirror, cfg.Agrouter.LogDir)
 	// a CLI without catalog options would fall back to routing across every CLI
 	enabled := func(name string) bool { return len(catalog.ByCLI(cat.Options, name)) > 0 }
-	if err = resolveExec(cmd, enabled); err != nil {
+	disabled := func(name string) bool { return slices.Contains(cfg.DisabledCLIs, name) }
+	if err = resolveExec(cmd, enabled, disabled); err != nil {
 		return a.fail(err)
 	}
 

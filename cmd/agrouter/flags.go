@@ -127,9 +127,10 @@ func parseArgs(argv []string) (command, error) {
 var errPositionals = errors.New("more than one positional argument: pass the prompt as one quoted argument")
 
 // resolveExec decides what the exec operand and --cli are once the enabled CLIs are known: the operand
-// is the CLI when it names one, else the positional prompt (a second positional is then too many);
-// --cli pins the provider too, and a different CLI than the operand is a conflict. An unknown pin is an error.
-func resolveExec(cmd command, enabled func(string) bool) error {
+// is the CLI when it names one, an error when it names a disabled one, else the positional prompt (a
+// second positional is then too many); --cli pins the provider too, and a different CLI than the
+// operand is a conflict. An unknown pin is an error.
+func resolveExec(cmd command, enabled, disabled func(string) bool) error {
 	req := cmd.req
 	if req.Mode != args.ModeExec {
 		return nil
@@ -138,6 +139,8 @@ func resolveExec(cmd command, enabled func(string) bool) error {
 		switch {
 		case enabled(cmd.operand):
 			req.CLI = cmd.operand
+		case disabled(cmd.operand):
+			return fmt.Errorf("exec %s: not a configured, enabled CLI", cmd.operand)
 		case req.Prompt.Set:
 			return errPositionals
 		default:

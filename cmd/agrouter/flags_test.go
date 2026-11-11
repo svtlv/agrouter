@@ -21,12 +21,13 @@ func parseOK(t *testing.T, argv []string) *args.Request {
 }
 
 // parseResolved parses argv and resolves the exec operand and --cli against the enabled synthetic CLIs
-// tool-a and tool-b, as run does once the config is loaded.
+// tool-a and tool-b and the disabled tool-off, as run does once the config is loaded.
 func parseResolved(t *testing.T, argv []string) (*args.Request, error) {
 	t.Helper()
 	cmd, err := parseArgs(argv)
 	require.NoError(t, err)
-	err = resolveExec(cmd, func(name string) bool { return name == "tool-a" || name == "tool-b" })
+	err = resolveExec(cmd, func(name string) bool { return name == "tool-a" || name == "tool-b" },
+		func(name string) bool { return name == "tool-off" })
 	return cmd.req, err
 }
 
@@ -154,7 +155,7 @@ func TestParseArgs_DocumentedExamples(t *testing.T) {
 }
 
 // TestResolveExec covers the exec command-line table: the operand is the CLI only when it names an
-// enabled one, otherwise the prompt; --cli pins too, and the two must agree.
+// enabled one, an error when it names a disabled one, otherwise the prompt; --cli pins too, and the two must agree.
 func TestResolveExec(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -173,6 +174,8 @@ func TestResolveExec(t *testing.T) {
 		{"operand and --cli disagree", []string{"exec", "tool-a", "--cli", "tool-b", "x"}, "", args.Optional{}, "--cli tool-b conflicts with exec tool-a"},
 		{"empty --cli conflicts", []string{"exec", "tool-a", "--cli=", "x"}, "", args.Optional{}, "conflicts with exec tool-a"},
 		{"unknown --cli", []string{"exec", "--cli=nope", "x"}, "", args.Optional{}, "exec --cli nope: not a configured, enabled CLI"},
+		{"disabled operand", []string{"exec", "tool-off"}, "", args.Optional{}, "exec tool-off: not a configured, enabled CLI"},
+		{"disabled operand with a prompt", []string{"exec", "tool-off", "x"}, "", args.Optional{}, "exec tool-off: not a configured, enabled CLI"},
 		{"prompt operand and a second positional", []string{"exec", "fix bug", "more"}, "", args.Optional{}, "more than one positional"},
 		{"empty --cli is no pin", []string{"exec", "--cli=", "x"}, "", positional("x"), ""},
 		{"--cli in decision mode restricts routing", []string{"--cli", "tool-a", "x"}, "tool-a", positional("x"), ""},
@@ -197,7 +200,7 @@ func TestResolveExec(t *testing.T) {
 func TestResolveExec_PromptFlagKeepsCLIWord(t *testing.T) {
 	cmd, err := parseArgs([]string{"exec", "-p", "tool-a"})
 	require.NoError(t, err)
-	require.NoError(t, resolveExec(cmd, func(string) bool { return true }))
+	require.NoError(t, resolveExec(cmd, func(string) bool { return true }, func(string) bool { return false }))
 	assert.Empty(t, cmd.req.CLI, "a word after -p is the prompt, not the CLI")
 	assert.Equal(t, positional("tool-a"), cmd.req.PromptFlag)
 }

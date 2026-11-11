@@ -301,6 +301,13 @@ func TestEligibleNativeSelection(t *testing.T) {
 			want: []string{"alpha"}, modelPass: true, dropped: []Drop{{CLI: "beta", Reason: "native model worker-model"}}},
 		{name: "a shared template keeps both CLIs for the cli stage", req: &args.Request{Native: natAll("", "high")},
 			want: []string{"strong@high", "worker@high"}},
+		{name: "a catalog model read through a shared template pins its CLI", req: &args.Request{Native: natAll("strong-model", "")},
+			want: []string{"strong@low", "strong@high"}, dropped: []Drop{{CLI: "beta", Reason: "native model strong-model"}}},
+		{name: "a shared template with a catalog model and effort pins its CLI", req: &args.Request{Native: natAll("worker-model", "high")},
+			want: []string{"worker@high"}, dropped: []Drop{{CLI: "alpha", Reason: "native model worker-model"}}},
+		{name: "each CLI with its own catalog model stays", req: &args.Request{Native: map[string]args.Selection{
+			"alpha": {Model: "strong-model"}, "beta": {Model: "worker-model"}}},
+			want: []string{"strong@low", "strong@high", "worker@low", "worker@high"}},
 		{name: "a catalog model drops an effort-only CLI", req: &args.Request{Native: map[string]args.Selection{
 			"alpha": {Model: "strong-model"}, "beta": {Effort: "high"}}},
 			want: []string{"strong@low", "strong@high"}, dropped: []Drop{{CLI: "beta", Reason: "native model strong-model"}}},

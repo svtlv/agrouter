@@ -367,7 +367,7 @@ Compatibility notes:
 - Modify: `cmd/agrouter/fallback_test.go`, `cmd/agrouter/reason_test.go`, `cmd/agrouter/readiness_test.go`, `cmd/agrouter/debug_test.go`
 - Modify: `cmd/agrouter/app_windows_test.go` (build-tagged; check with `GOOS=windows go vet ./cmd/agrouter`)
 
-- [x] `execOperand` keeps a candidate operand instead of failing; after config load (`resolveExec`) it becomes the CLI if it names an enabled CLI, else the positional prompt; recheck "more than one positional argument" afterwards (⚠️ the config drops disabled CLIs, so a disabled name cannot be told from a prompt: `exec <disabled> "x"` is exit 2 as a second positional, `exec <disabled>` alone is a prompt; `exec --cli <disabled>` is exit 2)
+- [x] `execOperand` keeps a candidate operand instead of failing; after config load (`resolveExec`) it becomes the CLI if it names an enabled CLI, else the positional prompt; recheck "more than one positional argument" afterwards (⚠️ the config drops disabled CLIs, so a disabled name cannot be told from a prompt: `exec <disabled> "x"` is exit 2 as a second positional, `exec <disabled>` alone is a prompt; `exec --cli <disabled>` is exit 2; resolved in review: config keeps `DisabledCLIs`, so `exec <disabled>` is exit 2 with or without a prompt)
 - [x] `--cli` in exec pins the provider; operand and `--cli` disagreeing stays exit 2
 - [x] mark `Model`/`Effort` `hidden:"true"`; `check` returns the fixed migration-hint errors (exit 2) in both modes
 - [x] in exec, fill `req.Native` from `args.NativeSelection` for the pinned CLI or every enabled CLI (`nativeSelections`); build `Choice` without natively set fields (`generatedChoice`) (⚠️ without a pinned CLI the separator check and readiness probe are skipped until Task 5)

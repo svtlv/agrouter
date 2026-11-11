@@ -78,8 +78,9 @@ func (e *Eligibility) filterCLI(name string) {
 }
 
 // filterNative keeps the CLIs whose templates detected a native model or effort, then narrows each
-// one's options to its own selection. A native model in a CLI's own catalog wins over an effort-only
-// detection of another CLI, which is dropped. Without any detection it changes nothing.
+// one's options to its own selection. A native model in a CLI's own catalog pins that CLI over another
+// CLI's effort-only detection and over another CLI that read the same catalog model through a shared
+// template; both are dropped. Without any detection it changes nothing.
 func (e *Eligibility) filterNative(cat *catalog.Catalog) {
 	var detected []string
 	for _, cli := range catalog.CLIs(e.Options) {
@@ -103,7 +104,7 @@ func (e *Eligibility) filterNative(cat *catalog.Catalog) {
 		switch {
 		case !slices.Contains(detected, cli):
 			e.Dropped = append(e.Dropped, Drop{CLI: cli, Reason: reason})
-		case owner != "" && e.native[cli].Model == "":
+		case owner != "" && (e.native[cli].Model == "" || foreignModel(cat, catalog.ByCLI(e.Options, cli), e.native[cli].Model)):
 			e.Dropped = append(e.Dropped, Drop{CLI: cli, Reason: "native model " + e.native[owner].Model})
 		default:
 			opts = append(opts, e.narrow(cat, cli, e.native[cli])...)
@@ -122,6 +123,16 @@ func ownModel(cat *catalog.Catalog, opts []catalog.Option, value string) (config
 		return config.Model{}, false
 	}
 	return m, true
+}
+
+// foreignModel reports whether value resolves to a catalog model that none of opts carries: a model of
+// another CLI.
+func foreignModel(cat *catalog.Catalog, opts []catalog.Option, value string) bool {
+	if _, ok := cat.LookupModel(value); !ok {
+		return false
+	}
+	_, own := ownModel(cat, opts, value)
+	return !own
 }
 
 // nativeReason names the native selection of the detected CLIs, for the CLIs it left out.

@@ -165,6 +165,9 @@ func (m *merged) decode() (*Config, error) {
 				return nil, err
 			}
 			disabled[cliName] = !on
+			if !on {
+				cfg.DisabledCLIs = append(cfg.DisabledCLIs, cliName)
+			}
 		}
 	}
 
