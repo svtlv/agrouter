@@ -25,7 +25,7 @@
 # total routing budget: reading stdin and files, the --doc complexity stage and up to three sequential
 # routing stages (cli, model, effort), each sending its chunks at once, with retries.
 # cooperative: reading and network stop at it, splitting and encoding do not. raise it for very long inputs
-timeout   = 30s
+timeout   = 120s
 
 # the questions sent to the classifier, and what each state field holds, are built into agrouter; these
 # two keys hold only the preference they follow. both must be non-empty. the classifier model is the
@@ -77,12 +77,15 @@ url     = https://api.typesafe.ai/v1/systemone
 # api_key =
 # pin a versioned id (e.g. jev-1.13.0) to keep routing stable across releases
 model   = jev-latest
-request_tokens  = 30000
-bytes_per_token = 3
+# this repo routes ralphex prompts that attach the progress log, which tokenizes at ~2.4 bytes/token:
+# at 3 its chunks overflowed the 32k limit (request_too_long), so the long-context mode is on here.
+# the user-scope config keeps long_context = false.
+request_tokens  = 128000
+bytes_per_token = 2.2
 # long_context sends TypeSafe's long-context header and raises the limits agrouter checks request_tokens
 # against: at most 30000 with long_context = false, 260000 with long_context = true. it does not raise
 # request_tokens: raise that yourself, as in the example below.
-long_context    = false
+long_context    = true
 # long context: Jev's experimental long-input mode (the "danger zone" header
 # TypeSafe-Danger-Zone-Long-Context: true). Jev's limits rise from 32k per question / 64k per
 # request to 262k each, at the same price, but slower and less accurate.
