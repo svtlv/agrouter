@@ -16,6 +16,11 @@ const MaxOptions = 255
 // idSep separates the model section from the effort in an option id; it is reserved in section names.
 const idSep = "@"
 
+// PassthroughID is the id of the synthetic option that carries a native model outside the catalog for
+// cli. It ends in the reserved separator, so it never equals a catalog option id: those have a
+// separator-free section, and an effort after any separator.
+func PassthroughID(cli string) string { return cli + idSep }
+
 // Option is one (cli, model, effort) the router can choose.
 type Option struct {
 	ID      string // "<model section>@<effort>", or "<model section>" for a model without efforts

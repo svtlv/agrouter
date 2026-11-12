@@ -52,10 +52,10 @@ func TestBuild(t *testing.T) {
 		{name: "both unset: the child's defaults", cli: alpha, want: []string{"alpha", "-p"}},
 		{name: "placeholder inside a token", cli: beta, choice: Choice{Effort: "high"},
 			want: []string{"beta", "exec", "-c", `model_reasoning_effort="high"`}},
-		{name: "native tokens before the prompt, unchanged", cli: beta,
+		{name: "generated args precede the native block, which stays unchanged", cli: beta,
 			req:    Request{Prompt: Optional{Value: prompt, Set: true}, Raw: []string{"--search", "", "a b", "--search", "--", "x"}},
 			choice: Choice{Model: "worker-model", Effort: "high"},
-			want:   []string{"beta", "exec", "--search", "", "a b", "--search", "--model", "worker-model", "-c", `model_reasoning_effort="high"`, "--", "x", "--", prompt}},
+			want:   []string{"beta", "exec", "--model", "worker-model", "-c", `model_reasoning_effort="high"`, "--search", "", "a b", "--search", "--", "x", "--", prompt}},
 		{name: "no prompt: prompt_args dropped, \"--\" included", cli: alpha, req: Request{Raw: []string{"--json"}},
 			want: []string{"alpha", "-p", "--json"}},
 		{name: "an empty prompt is never an empty token", cli: alpha, req: Request{Prompt: Optional{Set: true}},
@@ -86,7 +86,7 @@ func TestBuildPromptStaysLiteral(t *testing.T) {
 			t.Run(name+" "+text, func(t *testing.T) {
 				req.Raw = []string{"--add-dir", "x"}
 				res := Build(alpha, &req, Choice{Model: "m", Effort: "high"})
-				assert.Equal(t, []string{"alpha", "-p", "--add-dir", "x", "--model", "m", "--effort", "high", "--", text},
+				assert.Equal(t, []string{"alpha", "-p", "--model", "m", "--effort", "high", "--add-dir", "x", "--", text},
 					res.Argv)
 			})
 		}
@@ -117,7 +117,7 @@ func TestBuildPromptSources(t *testing.T) {
 }
 
 func TestBuildOwnFlagsNeverInArgv(t *testing.T) {
-	req := &Request{CLI: "alpha", APIKey: Optional{Value: "sk-secret", Set: true}, Model: "opus",
+	req := &Request{CLI: "alpha", APIKey: Optional{Value: "sk-secret", Set: true},
 		Docs: []string{"AGENTS.md"}}
 	res := Build(fixtureCLI(t, "alpha"), req, Choice{Model: "large-model"})
 	assert.Equal(t, []string{"alpha", "-p", "--model", "large-model"}, res.Argv)
@@ -163,7 +163,7 @@ efforts = low, high
 
 	req := &Request{Prompt: Optional{Value: "do it", Set: true}, Raw: []string{"--emit", "ndjson"}}
 	res := Build(zeta, req, Choice{Model: "z1", Effort: "high"})
-	assert.Equal(t, []string{"zeta-agent", "--headless", "--emit", "ndjson", "--llm=z1", "--think", "high",
+	assert.Equal(t, []string{"zeta-agent", "--headless", "--llm=z1", "--think", "high", "--emit", "ndjson",
 		"--task", "--", "do it"}, res.Argv)
 }
 
@@ -172,7 +172,7 @@ func TestRedacted(t *testing.T) {
 	res := Build(alpha, &Request{Prompt: Optional{Value: "secret task text", Set: true}, Raw: []string{"--add-dir", "/private"}},
 		Choice{Model: "large-model", Effort: "high"})
 	got := res.Redacted()
-	assert.Equal(t, "alpha -p <2 raw argument(s)> --model large-model --effort high -- <prompt>", got)
+	assert.Equal(t, "alpha -p --model large-model --effort high <2 raw argument(s)> -- <prompt>", got)
 	assert.NotContains(t, got, "secret")
 	assert.NotContains(t, got, "/private")
 
@@ -183,25 +183,50 @@ func TestRedacted(t *testing.T) {
 	assert.Equal(t, `"" "a b" "x\x01"`, Result{Argv: []string{"", "a b", "x\x01"}, promptAt: -1, rawAt: 3}.Redacted())
 }
 
-func TestBuildSelectionPrecedence(t *testing.T) {
-	cli := fixtureCLI(t, "beta")
-	raw := []string{"-m", "native-model", "--effort=native", "-c", `model_reasoning_effort="native"`, "--profile", "work"}
-	req := Request{Raw: raw}
-	res := Build(cli, &req, Choice{Model: "chosen-model", Effort: "chosen-effort"})
-	assert.Equal(t, []string{"beta", "exec", "-c", `model_reasoning_effort="native"`, "--profile", "work",
-		"--model", "chosen-model", "-c", `model_reasoning_effort="chosen-effort"`}, res.Argv)
-	assert.Equal(t, raw, req.Raw)
-	assert.Equal(t, []string{"beta", "exec", "--json"}, Build(cli,
-		&Request{Raw: []string{"--model", "native", "--effort", "native", "--json"}}, Choice{}).Argv,
-		"fallback uses the child's defaults instead of a native selection")
+// TestBuildNativeUnchanged pins that every native token reaches the child byte-identical and in order,
+// whatever it looks like, and that the generated arguments come first.
+func TestBuildNativeUnchanged(t *testing.T) {
+	alpha, beta := fixtureCLI(t, "alpha"), fixtureCLI(t, "beta")
+	tests := []struct {
+		name   string
+		cli    config.CLI
+		raw    []string
+		choice Choice
+		want   []string
+	}{
+		{name: "aliases and attached forms", cli: alpha, raw: []string{"-m", "native", "-mx", "--model=a", "--effort=b"},
+			choice: Choice{Model: "chosen"},
+			want:   []string{"alpha", "-p", "--model", "chosen", "-m", "native", "-mx", "--model=a", "--effort=b"}},
+		{name: "empty tokens and repeats", cli: alpha, raw: []string{"", "-v", "-v", "two words", ""},
+			want: []string{"alpha", "-p", "", "-v", "-v", "two words", ""}},
+		{name: "missing values", cli: alpha, raw: []string{"--model"},
+			want: []string{"alpha", "-p", "--model"}},
+		{name: "later separators", cli: alpha, raw: []string{"--json", "--", "--model", "x", "--", "--effort"},
+			choice: Choice{Effort: "low"},
+			want:   []string{"alpha", "-p", "--effort", "low", "--json", "--", "--model", "x", "--", "--effort"}},
+		{name: "codex config expressions", cli: beta,
+			raw:    []string{"-c", `model="m"`, "-c", "model_reasoning_effort=high", "-c", `project_doc="P"`},
+			choice: Choice{Model: "chosen"},
+			want: []string{"beta", "exec", "--model", "chosen", "-c", `model="m"`, "-c", "model_reasoning_effort=high",
+				"-c", `project_doc="P"`}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			original := append([]string(nil), tc.raw...)
+			res := Build(tc.cli, &Request{Raw: tc.raw}, tc.choice)
+			assert.Equal(t, tc.want, res.Argv)
+			assert.Equal(t, original, tc.raw, "the caller's native slice stays unchanged")
+			assert.Equal(t, tc.raw, res.Argv[res.rawAt:res.rawAt+res.rawLen], "the native tokens are one block")
+		})
+	}
 }
 
 func TestRedactedNativeSeparator(t *testing.T) {
 	res := Build(fixtureCLI(t, "alpha"), &Request{Raw: []string{"--private", "secret", "-mnative", "--", "--model", "secret-position"}},
 		Choice{Model: "chosen", Effort: "chosen-effort"})
-	assert.Equal(t, []string{"alpha", "-p", "--private", "secret", "--model", "chosen", "--effort", "chosen-effort",
-		"--", "--model", "secret-position"}, res.Argv)
-	assert.Equal(t, "alpha -p <2 raw argument(s)> --model chosen --effort chosen-effort <3 raw argument(s)>", res.Redacted())
+	assert.Equal(t, []string{"alpha", "-p", "--model", "chosen", "--effort", "chosen-effort",
+		"--private", "secret", "-mnative", "--", "--model", "secret-position"}, res.Argv)
+	assert.Equal(t, "alpha -p --model chosen --effort chosen-effort <6 raw argument(s)>", res.Redacted())
 	assert.NotContains(t, res.Redacted(), "secret")
 	assert.NotContains(t, res.Redacted(), "native")
 }

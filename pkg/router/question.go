@@ -151,8 +151,8 @@ type modelEntry struct {
 }
 
 // stageQuestion is lv's Choice over gs, whose options must all come from cfg, for a state described
-// by guide. effort is the caller's passed-through effort, used for options without one of their own.
-func stageQuestion(cfg *config.Config, lv level, guide string, gs []group, effort string) classifier.Question {
+// by guide. efforts holds each CLI's passed-through native effort, used for its options without one of their own.
+func stageQuestion(cfg *config.Config, lv level, guide string, gs []group, efforts map[string]string) classifier.Question {
 	in := stageInstructions{Question: lv.question, State: guide, Policy: cfg.Agrouter.RoutingPolicy,
 		Efforts: classifier.Criteria{}}
 	criteria := make(classifier.Criteria, 0, len(gs))
@@ -166,12 +166,12 @@ func stageQuestion(cfg *config.Config, lv level, guide string, gs []group, effor
 		case LevelModel:
 			c.Model, c.CLI = o.Name, o.CLI
 		default:
-			c.Effort = optionEffort(o, effort)
+			c.Effort = optionEffort(o, efforts[o.CLI])
 		}
 		criteria = append(criteria, classifier.Criterion{Name: g.label, Value: c})
 		opts = append(opts, g.opts...)
 	}
-	t := newTree(cfg, opts, effort)
+	t := newTree(cfg, opts, efforts)
 	for _, cli := range t.clis {
 		if lv.name == LevelCLI {
 			c, _ := cfg.CLIByName(cli)
@@ -199,7 +199,7 @@ type tree struct {
 // modelKey is a model stage criterion under its CLI; a struct, since names may hold any separator.
 type modelKey struct{ cli, name string }
 
-func newTree(cfg *config.Config, opts []catalog.Option, effort string) *tree {
+func newTree(cfg *config.Config, opts []catalog.Option, efforts map[string]string) *tree {
 	models := make(map[string]config.Model, len(cfg.Models))
 	for _, m := range cfg.Models {
 		models[m.Name] = m
@@ -217,7 +217,7 @@ func newTree(cfg *config.Config, opts []catalog.Option, effort string) *tree {
 			t.entries[key] = e
 			t.models[o.CLI] = append(t.models[o.CLI], name)
 		}
-		label := optionEffort(o, effort)
+		label := optionEffort(o, efforts[o.CLI])
 		if label == "" {
 			e.Efforts = append(e.Efforts, noEffortLabel(models, o))
 			continue
@@ -329,7 +329,7 @@ func budget(cfg *config.Config, cat *catalog.Catalog) (prompt.Budget, error) {
 // each model's efforts (effort labels repeat across models, so they are never asked together).
 func largestStage(cfg *config.Config, cat *catalog.Catalog, guide string) int {
 	size := func(lv level, opts []catalog.Option) int {
-		return questionLen(lv.name, stageQuestion(cfg, lv, guide, groups(opts, lv), ""))
+		return questionLen(lv.name, stageQuestion(cfg, lv, guide, groups(opts, lv), nil))
 	}
 	n := size(routeLevels[0], cat.Options)
 	for _, cli := range catalog.CLIs(cat.Options) {

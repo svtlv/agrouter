@@ -5,7 +5,7 @@ agrouter picks the coding-agent CLI, model and reasoning effort for a prompt by 
 It has two modes:
 
 - **Decision** (default): print the choice, project complexity and per-stage confidence as one JSON line. Add `--verbose` for the argv and other details when the caller launches the CLI itself.
-- **Exec** (`agrouter exec <cli>`): route within the named CLI, add the chosen model and effort through config, append the CLI's own arguments given after `--`, and run it.
+- **Exec** (`agrouter exec [<cli>]`): route (within the named CLI, when one is given), add the chosen model and effort through config, append the CLI's own arguments given after `--` unchanged, and run it. A model or effort set in those native arguments is honored and not routed.
 
 ## Install
 
@@ -54,24 +54,23 @@ The key comes from `--api-key`, then `AGROUTER_CLASSIFIER_API_KEY`, then `api_ke
 ## Usage
 
 ```
-agrouter           [options] [-p TEXT] [--prompt-file PATH] [--doc PATH]... [prompt]                       # decision mode
-agrouter exec <cli> [options] [-p TEXT] [--prompt-file PATH] [--doc PATH]... [prompt] [-- native args...]  # exec mode
+agrouter             [options] [-p TEXT] [--prompt-file PATH] [--doc PATH]... [prompt]                       # decision mode
+agrouter exec [<cli>] [options] [-p TEXT] [--prompt-file PATH] [--doc PATH]... [prompt] [-- native args...]  # exec mode
 ```
 
-Exec needs the CLI to run right after `exec`; a missing operand, or a CLI that is not configured and enabled, is exit `2` before the classifier is asked. `--cli` cannot supply it: `--cli` equal to the operand is accepted as redundant, a different one is exit `2`. Decision mode rejects `--`, even with nothing after it.
+In exec, the CLI to run is optional. The token right after `exec` is the CLI when it names a configured CLI (a disabled one is exit `2`, never the prompt); otherwise it is the positional prompt (`agrouter exec "fix the bug" -- ...`, or `agrouter exec -p claude` for a prompt that is the word `claude`). `--cli` pins the CLI in exec as well; `--cli` equal to the operand is accepted as redundant, a different one is exit `2`, and so is `--cli` naming a CLI that is not enabled. Without either, the native arguments can imply the CLI (see [Invocation descriptors](#invocation-descriptors)), and otherwise routing chooses it. Decision mode rejects `--`, even with nothing after it, and pins a CLI only through `--cli`.
 
 The prompt can come from four sources, in any combination: `-p TEXT`, the one positional argument, the text of `--prompt-file PATH` and stdin, all before `--`. agrouter joins them in that order with a blank line between them; at least one must be non-empty. Nothing after `--` is read as a prompt: text there goes to the child but is not routed on. `-p`, `--prompt` and `--print` are one option: it may be given once, and a value that looks like a flag (`-p --model`) is rejected, as is a bare `--print` with no value before `--`. `--prompt-file` may be given once. Arguments follow Claude Code's names:
 
 | Option | Meaning |
 |---|---|
-| `--cli=NAME` | decision mode: route only within one CLI (`claude`, `codex`, ...); exec takes its CLI from the operand |
-| `-m M`, `--model=M`, `--effort=E` | fix the model or effort; the classifier chooses the rest. Values outside the catalog are passed through for the CLI to validate |
+| `--cli=NAME` | route only within one CLI (`claude`, `codex`, ...); in exec it is the same as the `exec <cli>` operand |
 | `-p TEXT`, `--prompt=TEXT`, `--print=TEXT` | the prompt, before the positional prompt, `--prompt-file` and stdin |
 | `--prompt-file=PATH` | read prompt text from a file |
 | `--doc=PATH` | a project doc (`CLAUDE.md`, `AGENTS.md`, ...) for routing only; repeatable, never passed to the child |
 | `--verbose` | full agrouter decision details; never affects routing. Before `--` it is agrouter's only; after `--` it is the child's own option |
 | `--api-key=KEY` | the API key of the selected classifier provider; an empty value clears it. In exec, a child's own `--api-key` goes after `--` |
-| `-- native args...` | exec only: passed to the child in order, including empty tokens, repeats and later `--`. Agrouter replaces native `--model`/`-m` and `--effort`; its generated selections follow native options (see [Invocation descriptors](#invocation-descriptors)) |
+| `-- native args...` | exec only: passed to the child unchanged, in order, including empty tokens, repeats and later `--`. The CLI's own model and effort flags, as its `model_args`/`effort_args` templates spell them, fix those fields and can imply the CLI; agrouter generates only the fields they leave unset (see [Invocation descriptors](#invocation-descriptors)) |
 | `--help`, `--version` | print help or the version and exit |
 
 Whenever stdin is not a terminal, agrouter reads it to EOF within `[agrouter] timeout` before routing. A script that passes the prompt only as an argument or a file should close stdin or redirect it from `/dev/null`; an inherited pipe that stays open uses up the timeout, and the classifier cannot decide.
@@ -94,17 +93,20 @@ agrouter routes in up to three stages, each narrowing the options for the next:
 
 A stage with one candidate is skipped without asking the classifier. Each `cli` candidate is described together with its models, their prices and effort levels, so the classifier can weigh what lies below it; each `model` candidate with its efforts. A stage's confidence is therefore conditional on the stages before it.
 
-A value the caller passes fixes its stage, because eligibility filters by it before routing:
+A value that is already fixed skips its stage, because eligibility filters by it before routing. `--cli X` (or the exec operand) fixes the CLI; in exec, a model or effort in the native arguments after `--` fixes that field, as the CLI's own templates spell it (see [Invocation descriptors](#invocation-descriptors)):
 
-| Passed | Stages asked |
+| Fixed | Stages asked |
 |---|---|
-| `--cli X` | `model` and `effort` within X (an unknown or disabled `--cli` is skipped with a warning and fixes nothing) |
-| `--model M` from the catalog | `effort` only: M belongs to one CLI |
-| `--model M` outside the catalog | `cli` only, when more than one CLI is left; M is passed through with the caller's `--effort`, if any |
-| `--effort E` | `cli` and `model`; E is never re-decided |
-| `--cli`, `--model` and `--effort` | none: one option is left and the classifier is not asked |
+| `--cli X` | `model` and `effort` within X (in decision mode an unknown or disabled `--cli` is skipped with a warning and fixes nothing; in exec it is exit `2`) |
+| native model from the catalog | `effort` only: the model belongs to one CLI, which it also implies when no CLI is pinned |
+| native model outside the catalog | `cli` only, when more than one CLI is left; the model is passed through, and an effort it does not set stays with the child (`delegated`) |
+| native effort | `cli` and `model` (among the models that have that effort); the effort is never re-decided |
+| native model and effort | none: one option is left and the classifier is not asked |
+| neither | every stage that has more than one candidate |
 
-If any stage fails, the whole routing fails and the cannot-decide policy below applies to the original eligibility; the stages that completed appear only in `--verbose` and `AGROUTER_DEBUG=1` output. Native arguments after `--` exist only in exec, whose CLI is always the operand.
+Without a pinned CLI, each CLI looks for a native selection with its own templates, and the CLIs that found one are the only candidates. A catalog model of one CLI wins over an effort-only match of another. Decision mode has no native arguments, so `--cli` is its only constraint.
+
+If any stage fails, the whole routing fails and the cannot-decide policy below applies to the original eligibility; the stages that completed appear only in `--verbose` and `AGROUTER_DEBUG=1` output.
 
 ### Project complexity
 
@@ -207,7 +209,7 @@ Stage probabilities and pooled scores are separate from the classifier's Choice 
 
 The child's stdout, stderr and exit code are agrouter's. Set `AGROUTER_DEBUG=1` to see eligibility, each `--doc` chunk's complexity score, evidence and confidence with the project complexity, one line per routing stage (`stage <level>: skipped (<choice>)`, or the choice, confidence and top candidates, per chunk when pooled; the doc and stage lines end with `tokens: estimated N, provider reported M|unknown`, see [Request size](#request-size)), the classifier's probabilities and the final command on stderr (prompt text and key redacted; doc text is never printed). In exec mode it also prints one `readiness <cli>:` line per piece of availability evidence (dimension, status, reason code, window, model scope, reset, check), the defaults the checks reported, and how many options they excluded; never a probe's raw response.
 
-When the classifier cannot decide (no key, timeout, API errors, at any stage) and the CLI is known (`--cli`, implied by `--model`, or the only one left), agrouter runs it with only the caller's fixed `--model`/`--effort` and a model the classifier already chose before a later stage failed, so the CLI's defaults apply to the rest. With more than one CLI left, decision mode exits `2`: the one-line `agrouter:` error goes to stderr and one decision JSON object with `null` values and the reasons goes to stdout, without `argv`, `command` or stage confidence. `AGROUTER_DEBUG=1` shows the stages that completed.
+When the classifier cannot decide (no key, timeout, API errors, at any stage) and the CLI is known (`--cli`, the exec operand, implied by a native model, or the only one left), exec runs it with the native arguments (and so their model and effort) and a model the classifier already chose before a later stage failed, so the CLI's defaults apply to the rest. With more than one CLI left, both modes exit `2`: the one-line `agrouter:` error goes to stderr and nothing is started; decision mode also prints one decision JSON object with `null` values and the reasons on stdout, without `argv`, `command` or stage confidence. `AGROUTER_DEBUG=1` shows the stages that completed.
 
 ### Failure and null reasons
 
@@ -235,11 +237,10 @@ Decision JSON and the exec selection line explain a failed routing and every `nu
 |---|---|
 | `routing_failed` | routing failed with the CLI known; the child's default applies |
 | `unresolved` | routing failed with more than one CLI left; nothing was chosen |
-| `delegated` | routing succeeded and left the value to the child, for example the effort of a passed-through `--model` |
+| `delegated` | routing succeeded and left the value to the child, for example the effort of a native model outside the catalog |
 | `no_applicable_effort` | the chosen model has no effort levels |
-| `effort_not_passable` | the caller's `--effort` was dropped: the chosen CLI has no `effort_args` (one warning on stderr) |
 
-Messages never carry the prompt, `--doc` text, the key or the classifier's response body. A value the caller fixed (`--cli`, `--model`, `--effort`) stays set after a failure. For example, `--cli=alpha` with the model stage timing out prints:
+Messages never carry the prompt, `--doc` text, the key or the classifier's response body. A value that was fixed (`--cli`, the exec operand, or a native model or effort) stays set after a failure. For example, `--cli=alpha` with the model stage timing out prints:
 
 ```json
 {"cli":"alpha","model":null,"effort":null,"reason":{"code":"classifier_timeout","stage":"model","message":"Classifier model selection timed out"},"null_reasons":{"model":{"code":"routing_failed","message":"Model delegated to the child after routing failed"},"effort":{"code":"routing_failed","message":"Effort delegated to the child after routing failed"}}}
@@ -249,7 +250,7 @@ Messages never carry the prompt, `--doc` text, the key or the classifier's respo
 
 Before any classifier request, including the `--doc` complexity stage, exec checks that its CLI can run now: the executable, then the prompt-free checks in `[cli.<name>.availability]` (authentication, the subscription five-hour and weekly quota windows, model support). The checks run once per invocation, while agrouter reads the prompt, docs and stdin, within both the availability `timeout` and `[agrouter] timeout`; nothing is cached between invocations. Decision mode never runs them.
 
-Exec then routes only over the CLI's options that are left. It never switches to another CLI and never broadens a `--model`/`--effort` the caller fixed. Every outcome is one stderr line:
+Without a pinned CLI, exec probes every candidate CLI (all enabled ones, or those a native model or effort implies) in parallel, and routes over the options that are left. A blocked CLI just drops out of routing; exec stops only when every candidate is blocked, printing each CLI's block line in config order and exiting with the first CLI's code. With a pinned CLI there is one probe. Exec never broadens a model or effort fixed natively. Every outcome is one stderr line per CLI:
 
 | Outcome | stderr | Exit |
 |---|---|---|
@@ -258,7 +259,7 @@ Exec then routes only over the CLI's options that are left. It never switches to
 | nothing is left: subscription quota exhausted | `<error_prefix><error_message>; <windows> subscription quota exhausted[; resets at <RFC 3339>]` | `127` |
 | nothing is left under `unknown = block` | `agrouter: <cli> availability unverified: <reason>` | `2` |
 
-A preflight block prints no selection line, nothing on stdout, and makes no classifier request. It does print one explanation line before the lines above: `agrouter: routing skipped: <cli> <reason>; routing provider was not called; child CLI was not started`, where the reason is fixed text (`subscription quota exhausted`, `executable missing`, `authentication failed`, `availability unverified`, `model not supported`, `unavailable`). A block found after routing, such as a delegated model's default, is reported the same way with the classifier call already made: agrouter logs the selection routing produced, then prints `agrouter: run skipped: <cli> <reason>; child CLI was not started` (see [Exec fallback](#exec-fallback)). The reset is the latest reset of the exhausted windows, since a weekly window outlasts a five-hour one, and is left out when any of them is unverified. `error_prefix` (default `agrouter: `) and `error_message` come from the check that found the block, the first one in `checks` order, so the line can match a caller's own limit pattern, for example a severity prefix such as `ERROR: agrouter: `. An unknown availability is never reported as a quota block. Readiness uses agrouter's configured context. Native arguments after `--` never alter or disable probes; native settings, profile and provider overrides apply only to the child.
+A preflight block prints no selection line, nothing on stdout, and makes no classifier request. It does print one explanation line before the lines above (one combined line naming each blocked CLI when several were probed): `agrouter: routing skipped: <cli> <reason>; routing provider was not called; child CLI was not started`, where the reason is fixed text (`subscription quota exhausted`, `executable missing`, `authentication failed`, `availability unverified`, `model not supported`, `unavailable`). A block found after routing, such as a delegated model's default, is reported the same way with the classifier call already made: agrouter logs the selection routing produced, then prints `agrouter: run skipped: <cli> <reason>; child CLI was not started` (see [Exec fallback](#exec-fallback)). The reset is the latest reset of the exhausted windows, since a weekly window outlasts a five-hour one, and is left out when any of them is unverified. `error_prefix` (default `agrouter: `) and `error_message` come from the check that found the block, the first one in `checks` order, so the line can match a caller's own limit pattern, for example a severity prefix such as `ERROR: agrouter: `. An unknown availability is never reported as a quota block. Readiness uses agrouter's configured context. Native arguments after `--` never alter or disable probes; native settings, profile and provider overrides apply only to the child.
 
 The `<reason>` in these lines, and the reasons in the selection line's `readiness`, are fixed codes:
 
@@ -302,11 +303,11 @@ Note: the first line is readable without parsing JSON; the second carries the sa
 | `effective.*.source` | Meaning |
 |---|---|
 | `router` | agrouter chose it: the classifier, or the one option left |
-| `caller` | `--model` or `--effort` fixed it |
+| `native` | a native model or effort argument after `--` fixed it |
 | `verified_child_default` | the child's own default, as its prompt-free probe reported it for this working directory and settings |
-| `child_default_unknown` | the child's default is not known: `default_not_reported`; or `default_for_other_model` when the probe reported the default effort of the child's default model, but agrouter or the caller set another model |
+| `child_default_unknown` | the child's default is not known: `default_not_reported`; or `default_for_other_model` when the probe reported the default effort of the child's default model, but agrouter or a native model argument set another model |
 
-Values the classifier chose before the failure (the model when only the effort stage failed) and values the caller fixed keep their source and are never listed as fallbacks. Top-level `model`/`effort` stay `null` whenever agrouter passes no selection flag, even when `effective` shows a verified default. A catalog default or a model list's recommendation is never reported as verified. An intentional omission (a model without effort levels, the effort of a passed-through `--model`) is no fallback and prints no warning.
+Values the classifier chose before the failure (the model when only the effort stage failed) and values fixed natively keep their source and are never listed as fallbacks. Top-level `model`/`effort` stay `null` whenever agrouter passes no selection flag, even when `effective` shows a verified default. A catalog default or a model list's recommendation is never reported as verified. An intentional omission (a model without effort levels, the effort of a native model outside the catalog) is no fallback and prints no warning.
 
 A delegated model is checked against model-scoped quota blocks. When the verified default is blocked, exec prints the quota line and exits `127` without starting the child, as a preflight block does. When the default is unknown and some model has its own block, the model is unverified (`delegated_model_unverified`): a warning under `unknown = allow`, exit `2` under `unknown = block`.
 
@@ -335,7 +336,7 @@ INI files, merged per section and per key, later layers winning:
 3. local `.agrouter/config` in the working directory;
 4. environment (`AGROUTER_CLASSIFIER_API_KEY`).
 
-`AGROUTER_CLI` is no longer read. When it is set, agrouter prints one warning and ignores it: use `exec <cli>` to run a CLI, or `--cli=NAME` to restrict a decision.
+`AGROUTER_CLI` is no longer read. When it is set, agrouter prints one warning and ignores it: use `exec <cli>` or `--cli=NAME` to pin a CLI.
 
 The global config is installed with every setting and section commented out. Uncomment the section header and settings you want to customize. Missing, empty or comment-only files are refreshed from the current embedded defaults on each routing invocation; files with any active content are preserved. New directories use permissions `0700` and new files `0600`. Local `.agrouter/config` files are never created automatically.
 
@@ -394,30 +395,40 @@ CLI names, model IDs and aliases, and effort labels come from the merged config.
 Each `[cli.<name>]` section says how agrouter builds that CLI's argv. CLI names cannot contain `.`.
 
 ```text
-argv = command + exec_args + native options + model_args + effort_args + native "--" and its remaining tokens + prompt_args
+argv = command + exec_args + model_args + effort_args + native args, as given + prompt_args
 ```
 
-**Note:** agrouter emits each part left to right. `model_args` and `effort_args` appear only for a value routing selected or the caller fixed; `prompt_args` only when there is a `-p`, positional or `--prompt-file` prompt.
+**Note:** agrouter emits each part left to right. `model_args` and `effort_args` appear only for a field that routing selected, not for one the native arguments already set; `prompt_args` only when there is a `-p`, positional or `--prompt-file` prompt. The native arguments move as one block, including the child's own `--`.
 
 | Key | Holds |
 |---|---|
 | `exec_args` | the noninteractive invocation, for example `["-p"]` or `["exec"]`; required, may be `[]` |
 | `model_args` | how to pass the model, with `{model}`; required |
-| `effort_args` | how to pass the effort, with `{effort}`; required when a model of the CLI has efforts. Without it, a caller's `--effort` is dropped with one warning |
+| `effort_args` | how to pass the effort, with `{effort}`; required when a model of the CLI has efforts |
 | `prompt_args` | how to pass the prompt; `{prompt}` must be its last element and a whole token; required |
 
 Template keys are JSON arrays of strings. Only `{model}`, `{effort}` and `{prompt}` are placeholders, each only in its own key. An unset model or effort leaves its args out, so the CLI's own default applies.
 
-Pass child options after agrouter's `--`. They never supply routing constraints or readiness context. Agrouter reserves `--model`, `-m` and `--effort`: their native occurrences are removed before the child's own `--`, including `--model=x`, `-mx` and `-m=x`. To fix a model or effort, put it before agrouter's separator. A native-only model leaves the classifier free to choose:
+Pass child options after agrouter's `--`. They reach the child exactly as given: never stripped, rewritten or reordered, and never read as a prompt or as readiness context. The only thing agrouter reads from them is a model or effort, and only through the templates of the CLI that would run: the same `model_args`/`effort_args` that generate a selection also recognize one.
+
+| Form | Template | Recognized native tokens |
+|---|---|---|
+| exact sequence | `["--model", "{model}"]` | `--model opus` |
+| attached long flag (two-token template whose first token starts with `--`) | `["--model", "{model}"]` | `--model=opus` |
+| text around the placeholder | `["-c", "model_reasoning_effort=\"{effort}\""]` | `-c model_reasoning_effort="high"` |
+| optional quotes around the placeholder | same | `-c model_reasoning_effort=high` |
+
+The last match wins, up to the child's own `--`. An empty value, a flag with no value after it, and a lookalike key such as `-c model_x=...` are not a selection; the tokens still reach the child. A spelling no template lists, such as Codex's `-m`, passes through and the child resolves it against any generated selection itself. The shipped Codex model template is the `-c` form because Codex rejects a repeated `--model`, and `-c model=` is also how Ralphex spells it.
+
+A recognized value is looked up in that CLI's catalog (`[model.*]` names and aliases, `[effort.*]`). A native selection fixes that field, so it is not routed and not generated again, while an unset field is still routed:
 
 ```sh
-agrouter exec codex -p "Fix the bug" -- -m native-model
-agrouter exec codex -m chosen-model -p "Fix the bug" -- -m native-model
+agrouter exec claude -p "Fix the bug" -- --model opus       # routes the effort, passes --model opus
+agrouter exec "Fix the bug" -- --model opus                 # same: the model implies Claude
+agrouter exec claude -p "Fix the bug" -- --effort medium    # routes the model, passes --effort medium
 ```
 
-The first command uses the classifier's model; the second uses `chosen-model`. The child receives one model selection. The reserved native spellings are also removed on routing failure, so fallback uses the child's defaults. Tokens after the child's own `--` are positional and remain unchanged.
-
-All other native arguments, including configuration overrides, retain their contents and order. Generated model/effort arguments follow native options, so the child's override semantics give agrouter's selections precedence. For example, a native `-c model_reasoning_effort=...` precedes the generated effort override. There is no native option-arity table; a separate value literally spelled `-m`, `--model` or `--effort` is reserved too. Use an attached value such as `--add-dir=-m` to pass that text to another option. `-mVALUE` is the attached short-model form, so single-dash option names starting with `-m` are reserved too.
+A value outside the catalog (a full model ID, an effort the catalog lacks) runs as given without the classifier for that field; the child validates it, and an invalid native argument reaches the child, whose exit code is agrouter's. Without a pinned CLI, the CLIs whose templates matched are the only candidates, and the CLI stage runs only when more than one is left. Agrouter's own `--model`, `-m` and `--effort` are not options: before `--` they are exit `2` with a hint to pass the CLI's flag after `--`. Native selections are reported as the resolved model and effort in the selection line, with source `native`.
 
 When `prompt_args` puts the prompt after `--` and the native tokens already hold a `--`, a command-line prompt is exit `2`: the child would read the prompt's `--` as prompt text. Pass the prompt on stdin, or drop the extra `--`.
 
@@ -425,7 +436,7 @@ Never put prompt text after agrouter's `--`. Agrouter does not read native token
 
 ```sh
 agrouter exec claude -p "fix the bug" -- -p "rename the module"
-# child: claude -p -p "rename the module" --model … --effort … -- "fix the bug"
+# child: claude -p --model … --effort … -p "rename the module" -- "fix the bug"
 ```
 
 **Note:** Claude takes its first positional argument as the prompt and ignores the second. It runs "rename the module" with the model and effort the classifier chose for "fix the bug". With stdin instead of `-p`, the native text becomes the prompt and stdin is appended to it. Give the prompt to agrouter (`-p`, positional, `--prompt-file` or stdin), and keep only options after `--`.
@@ -529,9 +540,12 @@ agrouter no longer translates child options. Pass them after `--` with exec inst
 | `agrouter exec --cli=NAME ...` | `agrouter exec NAME ...` |
 | `AGROUTER_CLI` | `exec <cli>`, or `--cli=NAME` in decision mode; when set it is ignored with a warning |
 | `--permission-mode`, `--dangerously-*`, `--output-format`, `--sandbox`, `-c`/`--config` | the CLI's own spelling after `--`: `agrouter exec <cli> -- --output-format stream-json` |
-| native `--model`/`-m`/`--effort` selections after `--` | replaced by agrouter's selection; fix values with `--model`/`-m` or `--effort` before `--` |
+| `--model`/`-m`/`--effort` before `--` | exit `2`: use the CLI's own flag after `--` (`agrouter exec [<cli>] -- --model X`); it is recognized through the CLI's `model_args`/`effort_args` and fixes that field |
+| native `--model`/`-m`/`--effort` selections after `--` were replaced by agrouter's selection | now honored: they reach the child unchanged, fix their field and are not routed; a spelling the CLI's templates do not list (Codex's `-m`) just passes through |
+| `exec <cli>` with the CLI required | the CLI is optional: `exec "prompt" -- ...` lets native args or routing choose it; `exec <cli>` and `--cli` still pin it |
+| `effort_not_passable` in `null_reasons` | none: a native effort is read only through `effort_args`, so there is nothing to drop |
 | `[cli.<name>.args]` sections | `exec_args`, `model_args`, `effort_args`, `prompt_args` in `[cli.<name>]` |
-| `selection_flags`, `config_flags`, `selection_config_keys`, `context_flags`, `context_config_keys` | remove these keys; invocation templates and agrouter's reserved selection spellings replace the metadata lists |
+| `selection_flags`, `config_flags`, `selection_config_keys`, `context_flags`, `context_config_keys` | remove these keys; the invocation templates replace the metadata lists |
 | `skipped` in decision JSON and its skip warnings | none: nothing is mapped, so nothing is skipped |
 | raw tokens after `--` in decision mode | none: decision mode rejects `--` |
 
@@ -557,7 +571,7 @@ The old question keys are config errors that name their replacement, for example
 
 *User-owned setup.* The config, wrapper and agrouter overrides below live in your Ralphex and agrouter configs, not in this repository; adapt them to your Ralphex version.
 
-Ralphex passes the prompt on stdin and appends only native flags, so its arguments must land after agrouter's `--`. Claude mode: `claude_args` ends with `--`, and Ralphex's appended `--print` goes to `claude` unchanged.
+Ralphex passes the prompt on stdin and appends only native flags (its per-phase `--model`/`--effort` for Claude, `-c model=`/`-c model_reasoning_effort=` for Codex), so its arguments must land after agrouter's `--`. Claude mode: `claude_args` ends with `--`, and Ralphex's appended flags and `--print` go to `claude` unchanged.
 
 Ralphex config:
 
@@ -614,9 +628,28 @@ ERROR: agrouter: You've hit your usage limit; weekly subscription quota exhauste
 
 A global config installed before this default, or a local `.agrouter/config` copied from one, keeps `error_prefix = "agrouter: "` for Codex, and Ralphex's Codex executor then stops at a quota block instead of waiting; set the Codex prefix there too.
 
-**Note:** only the exec CLI's own line is printed. An authentication failure or an unknown availability never uses this wording, so Ralphex does not mistake it for a limit.
+**Note:** only the blocked CLIs' own lines are printed. An authentication failure or an unknown availability never uses this wording, so Ralphex does not mistake it for a limit.
 
-Leave `task_model`, `review_model`, `plan_model`, `codex_model` and `codex_reasoning_effort` empty to let the classifier choose: a model or effort Ralphex appends after `--` goes to the child, not to routing.
+agrouter honors the model and effort Ralphex appends: they reach the child unchanged, fix their fields and are not routed, while a field left unset is still routed. Ralphex parses `model[:effort]` and agrouter never reads Ralphex's config:
+
+| Ralphex setting | Claude native tokens | Classifier asked | Generated by agrouter |
+|---|---|---|---|
+| `opus:medium` | `--model opus --effort medium` | nothing | none |
+| `opus:` or `opus` | `--model opus` | effort | effort |
+| `:medium` | `--effort medium` | model | model |
+| `:` or empty | none | model and effort | both |
+
+```ini
+# ~/.config/ralphex/config
+claude_command = agrouter
+claude_args    = exec claude --doc=AGENTS.md -- --dangerously-skip-permissions --output-format stream-json --verbose
+task_model     = opus:
+review_model   = opus:medium
+```
+
+An empty `review_model` falls back to `task_model` (Ralphex's rule), while `review_model = :` emits nothing and lets the classifier route the review. Codex mode works the same way through `-c model="X"` and `-c model_reasoning_effort=Y`, which the shipped Codex templates recognize. Ralphex's own Codex defaults for `codex_model` and `codex_reasoning_effort` are non-empty, so a phase with an empty spec still sends both `-c` flags and fixes both fields: keep them empty, as in the config above, to let the classifier route Codex. A model ID or effort outside the catalog (a dated model ID, `max`) runs as given, without the classifier for that field.
+
+**Upgrading:** an earlier workaround that pinned `--model`/`--effort` before agrouter's `--` is now exit `2`; remove it in the same step as the upgrade, and set the models in Ralphex's own settings instead.
 
 **`idle_timeout`:** agrouter prints nothing while it routes, up to `[agrouter] timeout` (10s by default). A ralphex `idle_timeout` must exceed that plus the child's time to its first output, or ralphex kills every run during routing.
 
@@ -625,7 +658,7 @@ Leave `task_model`, `review_model`, `plan_model`, `codex_model` and `codex_reaso
 | Code | Meaning |
 |---|---|
 | `0` | decision printed, or `--help`/`--version` |
-| `2` | agrouter error before any child starts: unknown flag (including the removed `--permission-mode`, `--dangerously-*`, `--output-format`, `--sandbox` and `-c`), second positional, second `-p`/`--prompt`/`--print` or `--prompt-file`, a missing, unknown or disabled exec CLI, a `--cli` conflicting with it, `--` in decision mode, a command-line prompt after a second `--`, no prompt, a bad `--prompt-file` or `--doc` file, the timeout passing while the `--prompt-file` is read, config error, or the classifier cannot decide with more than one CLI left (decision mode then also prints the decision JSON with `null` values and reasons) |
+| `2` | agrouter error before any child starts: unknown flag (including `--model`/`-m`/`--effort`, which are not agrouter options, and the removed `--permission-mode`, `--dangerously-*`, `--output-format`, `--sandbox` and `-c`), second positional, second `-p`/`--prompt`/`--print` or `--prompt-file`, an unknown or disabled `--cli`, a disabled CLI as the exec operand, a `--cli` conflicting with the exec operand, `--` in decision mode, a command-line prompt after a second `--`, no prompt, a bad `--prompt-file` or `--doc` file, the timeout passing while the `--prompt-file` is read, config error, or the classifier cannot decide with more than one CLI left, in decision mode (which then also prints the decision JSON with `null` values and reasons) and in exec (which starts nothing) |
 | `2` | exec mode: availability unverified under `unknown = block` (`agrouter: <cli> availability unverified: <reason>`), before routing or, for a delegated model's default, after it |
 | `127` | exec mode: the chosen CLI could not be started; or before routing: its executable is missing, its authentication failed, or its subscription quota is exhausted (one quota line in the configured wording); or after routing: the child's verified default model is quota-blocked |
 | other | exec mode: the child's exit code (`128+signal` on Unix when it was killed) |

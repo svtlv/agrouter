@@ -353,20 +353,21 @@ func TestLoad_ClassifierKeyErrors(t *testing.T) {
 
 func TestLoad_Disabled(t *testing.T) {
 	tests := []struct {
-		name        string
-		local       string
-		wantCLIs    []string
-		wantModels  []string
-		wantEfforts int
+		name         string
+		local        string
+		wantCLIs     []string
+		wantModels   []string
+		wantEfforts  int
+		wantDisabled []string
 	}{
 		{name: "model", local: "[model.alpha-small]\nenabled = false\n",
 			wantCLIs: []string{"alpha", "beta"}, wantModels: []string{"alpha-big", "beta-one"}, wantEfforts: 1},
 		{name: "effort", local: "[effort.alpha.low]\nenabled = false\n",
 			wantCLIs: []string{"alpha", "beta"}, wantModels: []string{"alpha-big", "alpha-small", "beta-one"}},
 		{name: "cli takes its models and efforts", local: "[cli.alpha]\nenabled = false\n",
-			wantCLIs: []string{"beta"}, wantModels: []string{"beta-one"}},
+			wantCLIs: []string{"beta"}, wantModels: []string{"beta-one"}, wantDisabled: []string{"alpha"}},
 		{name: "disabled cli skips its subsections", local: "[cli.alpha]\nenabled = false\n[cli.alpha.availability]\nchecks = x\n",
-			wantCLIs: []string{"beta"}, wantModels: []string{"beta-one"}},
+			wantCLIs: []string{"beta"}, wantModels: []string{"beta-one"}, wantDisabled: []string{"alpha"}},
 		{name: "availability subsections of an enabled cli", local: "[cli.beta.availability]\nunknown = allow\n" +
 			"[cli.beta.availability.status]\ntransport = json-helper\n",
 			wantCLIs: []string{"alpha", "beta"}, wantModels: []string{"alpha-big", "alpha-small", "beta-one"}, wantEfforts: 1},
@@ -384,6 +385,7 @@ func TestLoad_Disabled(t *testing.T) {
 			assert.Equal(t, tc.wantCLIs, clis)
 			assert.Equal(t, tc.wantModels, modelSections(cfg))
 			assert.Len(t, cfg.Efforts, tc.wantEfforts)
+			assert.Equal(t, tc.wantDisabled, cfg.DisabledCLIs)
 		})
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -175,7 +176,7 @@ func TestApp_ExecPreflightUnknownAllowed(t *testing.T) {
 			e := newSyntheticEnv(t)
 			e.checker = reportChecker(func(cli config.CLI) readiness.Report { return withQuota(cli, tc.evidence...) })
 			const input = "prompt on stdin\x00\r\n"
-			r := e.run([]string{"exec", "alpha", "--model=fast-1", "--effort=low"}, strings.NewReader(input))
+			r := e.run([]string{"exec", "alpha", "--", "--model", "fast-1", "--effort", "low"}, strings.NewReader(input))
 
 			require.Equal(t, 0, r.code, r.stderr)
 			warning, rest, ok := strings.Cut(r.stderr, "\n")
@@ -211,7 +212,7 @@ func TestApp_ExecPreflightFiltersOptions(t *testing.T) {
 	t.Run("a fixed model is never broadened", func(t *testing.T) {
 		e := newSyntheticEnv(t)
 		e.checker = reportChecker(deepBlocked)
-		r := e.runWithRunner([]string{"exec", "alpha", "--model=strong", "fix it"}, nil, noChild(t))
+		r := e.runWithRunner([]string{"exec", "alpha", "fix it", "--", "--model", "strong"}, nil, noChild(t))
 
 		assert.Equal(t, runner.ExitStartFailure, r.code)
 		assert.Equal(t, routingSkipped("subscription quota exhausted")+
@@ -237,7 +238,7 @@ func TestApp_ExecPreflightFiltersOptions(t *testing.T) {
 		e := newSyntheticEnv(t)
 		checker := reportChecker(readyReport)
 		e.checker = checker
-		r := e.run([]string{"exec", "alpha", "--model=fast-1", "--effort=low", "fix it"}, nil)
+		r := e.run([]string{"exec", "alpha", "fix it", "--", "--model", "fast-1", "--effort", "low"}, nil)
 
 		require.Equal(t, 0, r.code, r.stderr)
 		assert.Len(t, checker.CheckCalls(), 1)
@@ -245,6 +246,138 @@ func TestApp_ExecPreflightFiltersOptions(t *testing.T) {
 		assert.Equal(t, map[string]any{"cli": "alpha", "model": "fast-1", "effort": "low"}, selectionLog(t, r.stderr),
 			"no warning when everything is verified")
 	})
+}
+
+// readyBut is a checker reporting ready for every CLI except those in reports.
+func readyBut(reports map[string]func(config.CLI) readiness.Report) *mocks.ReadinessCheckerMock {
+	return reportChecker(func(cli config.CLI) readiness.Report {
+		if report, ok := reports[cli.Name]; ok {
+			return report(cli)
+		}
+		return readyReport(cli)
+	})
+}
+
+func bothWindowsExhausted(cli config.CLI) readiness.Report {
+	return withQuota(cli, exhausted(readiness.WindowFiveHour, 0), exhausted(readiness.WindowWeekly, 0))
+}
+
+func TestApp_ExecPreflightWithoutProvider(t *testing.T) {
+	t.Run("a quota-blocked CLI drops out and the other runs without the cli stage", func(t *testing.T) {
+		e := newSyntheticEnv(t)
+		checker := readyBut(map[string]func(config.CLI) readiness.Report{"alpha": bothWindowsExhausted})
+		e.checker = checker
+		e.jev.pick = "other@high"
+		r := e.run([]string{"exec", "fix it"}, nil)
+
+		require.Equal(t, 0, r.code, r.stderr)
+		assert.Len(t, checker.CheckCalls(), 2, "every candidate CLI is probed")
+		assert.Equal(t, []string{"effort"}, e.jev.asked(), "one CLI and one model left: only the effort stage asks")
+		assert.Equal(t, map[string]any{"cli": "beta", "model": "other-1", "effort": "high",
+			"confidence": map[string]any{"effort": 0.9}}, selectionLog(t, r.stderr))
+		child, _, _ := e.child()
+		assert.Equal(t, []string{"-p", "--model", "other-1", "--effort", "high", "--", "fix it"}, child)
+	})
+
+	t.Run("a strict unknown CLI drops out silently", func(t *testing.T) {
+		e := newEnv(t)
+		e.globalConfig(syntheticCLIs(t) + availability("unknown = block"))
+		e.checker = readyBut(map[string]func(config.CLI) readiness.Report{
+			"alpha": func(cli config.CLI) readiness.Report {
+				return withQuota(cli, unknownQuota(readiness.ReasonProbeThrottled))
+			}})
+		e.jev.pick = "other@low"
+		r := e.run([]string{"exec", "fix it"}, nil)
+
+		require.Equal(t, 0, r.code, r.stderr)
+		assert.NotContains(t, r.stderr, "alpha")
+		assert.Equal(t, "beta", selectionLog(t, r.stderr)["cli"])
+	})
+
+	t.Run("each unverified CLI gets its own warning", func(t *testing.T) {
+		e := newSyntheticEnv(t)
+		e.checker = reportChecker(func(cli config.CLI) readiness.Report {
+			return withQuota(cli, unknownQuota(readiness.ReasonProbeThrottled))
+		})
+		e.jev.pick = "other@low"
+		r := e.run([]string{"exec", "fix it"}, nil)
+
+		require.Equal(t, 0, r.code, r.stderr)
+		assert.True(t, strings.HasPrefix(r.stderr, "agrouter: warning: alpha availability unknown: probe_throttled\n"+
+			"agrouter: warning: beta availability unknown: probe_throttled\n"), r.stderr)
+	})
+
+	t.Run("every candidate blocked prints each line and exits with the first code", func(t *testing.T) {
+		e := newEnv(t)
+		e.globalConfig(syntheticCLIs(t) + availability("unknown = block"))
+		e.checker = readyBut(map[string]func(config.CLI) readiness.Report{
+			"alpha": func(cli config.CLI) readiness.Report {
+				return withQuota(cli, unknownQuota(readiness.ReasonProbeThrottled))
+			},
+			"beta": bothWindowsExhausted,
+		})
+		r := e.runWithRunner([]string{"exec", "fix it"}, nil, noChild(t))
+
+		assert.Equal(t, exitUsage, r.code, "alpha is first and its strict unknown is a usage exit")
+		assert.Empty(t, r.stdout)
+		assert.Equal(t, "agrouter: routing skipped: alpha availability unverified, beta subscription quota exhausted; "+
+			"routing provider was not called; child CLI was not started\n"+
+			"agrouter: alpha availability unverified: probe_throttled\n"+
+			"agrouter: five-hour and weekly subscription quota exhausted\n", r.stderr)
+		assert.Empty(t, e.jev.requests())
+	})
+
+	t.Run("the selection summary comes from the chosen CLI's report", func(t *testing.T) {
+		e := newSyntheticEnv(t)
+		e.checker = readyBut(map[string]func(config.CLI) readiness.Report{"alpha": func(cli config.CLI) readiness.Report {
+			return withQuota(cli, free(readiness.WindowFiveHour), free(readiness.WindowWeekly),
+				exhausted(readiness.WindowWeekly, time.Hour, "strong"))
+		}})
+		e.jev.pick = "fast@high"
+		r := e.run([]string{"exec", "fix it"}, nil)
+
+		require.Equal(t, 0, r.code, r.stderr)
+		sel := selectionLog(t, r.stderr)
+		assert.Equal(t, "alpha", sel["cli"])
+		assert.Equal(t, map[string]any{"excluded": map[string]any{"quota_exhausted": float64(2)}}, sel["readiness"])
+	})
+
+	t.Run("the native filter narrows the probed CLIs", func(t *testing.T) {
+		e := newEnv(t)
+		e.globalConfig(syntheticCLIs(t) + "\n[cli.beta]\nmodel_args = [\"-c\", \"model=\\\"{model}\\\"\"]\n")
+		checker := reportChecker(readyReport)
+		e.checker = checker
+		e.jev.pick = "fast@low"
+		r := e.run([]string{"exec", "fix it", "--", "--model", "fast-1"}, nil)
+
+		require.Equal(t, 0, r.code, r.stderr)
+		require.Len(t, checker.CheckCalls(), 1)
+		assert.Equal(t, "alpha", checker.CheckCalls()[0].Cli.Name, "only the CLI the native model implies is probed")
+	})
+
+	t.Run("the separator of the decided CLI is checked before the child starts", func(t *testing.T) {
+		e := newSyntheticEnv(t)
+		e.jev.pick = "fast@low"
+		r := e.runWithRunner([]string{"exec", "fix it", "--", "--json", "--", "x"}, nil, noChild(t))
+
+		assert.Equal(t, exitUsage, r.code)
+		assert.Contains(t, r.stderr, `the native arguments after "--" hold another "--"`)
+		assert.NotContains(t, r.stderr, "selection")
+	})
+}
+
+func TestApp_ExecPreflightEarlyFailureStopsEveryProbe(t *testing.T) {
+	e := newSyntheticEnv(t)
+	var canceled atomic.Int32
+	e.checker = &mocks.ReadinessCheckerMock{CheckFunc: func(ctx context.Context, cli config.CLI) readiness.Report {
+		<-ctx.Done()
+		canceled.Add(1)
+		return withQuota(cli)
+	}}
+	r := e.runWithRunner([]string{"exec", "--doc", filepath.Join(e.workDir, "missing.md"), "fix it"}, nil, noChild(t))
+
+	assert.Equal(t, exitUsage, r.code)
+	assert.EqualValues(t, 2, canceled.Load(), "both probes are stopped before agrouter exits")
 }
 
 func TestApp_ExecPreflightIgnoresNativeContext(t *testing.T) {
@@ -264,13 +397,13 @@ func TestApp_ExecPreflightIgnoresNativeContext(t *testing.T) {
 				return withQuota(cli, readiness.Evidence{Dimension: readiness.DimensionQuota, Status: readiness.StatusNotApplicable})
 			})
 			e.checker = checker
-			argv := append([]string{"exec", "alpha", "--model=fast-1", "--effort=low", "fix it", "--"}, tc.native...)
+			argv := append([]string{"exec", "alpha", "fix it", "--", "--model", "fast-1", "--effort", "low"}, tc.native...)
 			r := e.run(argv, nil)
 
 			require.Equal(t, 0, r.code, r.stderr)
 			assert.NotContains(t, r.stderr, "availability unknown")
 			child, _, _ := e.child()
-			assert.Equal(t, slices.Concat([]string{"-p"}, tc.native, []string{"--model", "fast-1", "--effort", "low", "--", "fix it"}), child)
+			assert.Equal(t, slices.Concat([]string{"-p", "--model", "fast-1", "--effort", "low"}, tc.native, []string{"--", "fix it"}), child)
 			assert.Len(t, checker.CheckCalls(), 1)
 		})
 	}
@@ -284,7 +417,7 @@ func TestApp_ExecPreflightDeadline(t *testing.T) {
 		return withQuota(cli, unknownQuota(readiness.ReasonProbeTimeout))
 	}}
 	start := time.Now()
-	r := e.run([]string{"exec", "alpha", "--model=fast-1", "--effort=low"}, strings.NewReader("fix it\n"))
+	r := e.run([]string{"exec", "alpha", "--", "--model", "fast-1", "--effort", "low"}, strings.NewReader("fix it\n"))
 
 	require.Equal(t, 0, r.code, r.stderr)
 	assert.Less(t, time.Since(start), 5*time.Second)
@@ -410,7 +543,7 @@ func TestApp_ExecPreflightWithJSONHelper(t *testing.T) {
 			e.globalConfig(syntheticCLIs(t) + usageCheck("error_message = Limit reached", "args = [\""+helperProbeArg+"\"]"))
 			e.checker = readiness.Checker{Dir: e.workDir}
 			t.Setenv(helperProbe, tc.output)
-			r := e.run([]string{"exec", "alpha", "--model=fast-1", "--effort=low", "fix it"}, nil)
+			r := e.run([]string{"exec", "alpha", "fix it", "--", "--model", "fast-1", "--effort", "low"}, nil)
 
 			assert.Equal(t, tc.code, r.code, r.stderr)
 			if tc.code != 0 {
@@ -496,4 +629,14 @@ func TestPreflightBlock(t *testing.T) {
 			assert.Equal(t, runSkipped(tc.reason), err.runSkipped()+"\n")
 		})
 	}
+}
+
+func TestPreflightErrors_ErrorAndCode(t *testing.T) {
+	blocks := preflightErrors{
+		{line: "agrouter: alpha unavailable: auth_failed", code: runner.ExitStartFailure, cli: "alpha"},
+		{line: "agrouter: beta availability unverified: probe_throttled", code: exitUsage, cli: "beta"},
+	}
+
+	assert.Equal(t, "agrouter: alpha unavailable: auth_failed\nagrouter: beta availability unverified: probe_throttled", blocks.Error())
+	assert.Equal(t, runner.ExitStartFailure, blocks.code(), "the exit code is the first block's")
 }

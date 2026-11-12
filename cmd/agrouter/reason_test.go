@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -319,25 +320,30 @@ func TestApp_FailureStages(t *testing.T) {
 		name      string
 		stage     string
 		argv      []string
+		native    []string // exec only: the child's own flags after "--"; the case is skipped in decision mode
 		wantModel any
 		wantNulls []string
 	}{
 		{name: "cli stage", stage: "cli", argv: []string{"fix it"}, wantNulls: []string{"cli", "model", "effort"}},
 		{name: "model stage", stage: "model", argv: []string{"--cli=alpha", "fix it"}, wantNulls: []string{"model", "effort"}},
-		// the model is the caller's, so it is kept; only the effort falls back
-		{name: "effort stage", stage: "effort", argv: []string{"--model=fast-1", "fix it"}, wantModel: "fast-1",
+		// the model is native, so it is kept; only the effort falls back
+		{name: "effort stage", stage: "effort", argv: []string{"fix it"}, native: []string{"--model", "fast-1"}, wantModel: "fast-1",
 			wantNulls: []string{"effort"}},
 	}
 	for _, tc := range tests {
 		for _, mode := range []string{"decision", "exec"} {
-			if mode == "exec" && tc.stage == "cli" {
-				continue // exec names its one CLI
+			if (mode == "exec" && tc.stage == "cli") || (mode == "decision" && tc.native != nil) {
+				continue // exec names its one CLI; decision mode has no native arguments
 			}
 			t.Run(tc.name+"/"+mode, func(t *testing.T) {
 				e := failingEnv(t, tc.stage, func(*fakeJev) {})
 				argv := tc.argv
 				if mode == "exec" {
 					argv = append([]string{"exec", "alpha"}, argv...)
+					if tc.native != nil {
+						argv = append(argv, "--")
+						argv = append(argv, tc.native...)
+					}
 				}
 				r := e.run(argv, nil)
 
@@ -380,12 +386,12 @@ func TestApp_ReasonsOnSuccessAndOmissions(t *testing.T) {
 		assert.NotContains(t, s, "null_reasons")
 	})
 
-	t.Run("caller's effort kept after a failure", func(t *testing.T) {
+	t.Run("native effort kept after a failure", func(t *testing.T) {
 		e := failingEnv(t, "model", func(*fakeJev) {})
-		r := e.run([]string{"--cli=alpha", "--effort=high", "fix it"}, nil)
+		r := e.run([]string{"exec", "alpha", "fix it", "--", "--effort", "high"}, nil)
 
 		require.Equal(t, exitOK, r.code, r.stderr)
-		d := decision(t, r.stdout)
+		_, d := fallbackLog(t, r.stderr)
 		assert.Equal(t, "high", d["effort"])
 		assert.Equal(t, []string{"model"}, keys(d["null_reasons"].(map[string]any)))
 	})
@@ -398,10 +404,10 @@ cli         = alpha
 name        = plain-1
 description = A model without efforts.
 `)
-		r := e.run([]string{"--model=plain-1", "fix it"}, nil)
+		r := e.run([]string{"exec", "alpha", "fix it", "--", "--model", "plain-1"}, nil)
 
 		require.Equal(t, exitOK, r.code, r.stderr)
-		d := decision(t, r.stdout)
+		d := selectionLog(t, r.stderr)
 		assert.Equal(t, "plain-1", d["model"])
 		assert.NotContains(t, d, "reason")
 		assert.Equal(t, map[string]any{"effort": map[string]any{"code": nullNoEffort,
@@ -410,10 +416,10 @@ description = A model without efforts.
 
 	t.Run("an effort left to the child of a passed-through model", func(t *testing.T) {
 		e := newSyntheticEnv(t)
-		r := e.run([]string{"--cli=alpha", "--model=made-up-9", "fix it"}, nil)
+		r := e.run([]string{"exec", "alpha", "fix it", "--", "--model", "made-up-9"}, nil)
 
 		require.Equal(t, exitOK, r.code, r.stderr)
-		d := decision(t, r.stdout)
+		d := selectionLog(t, r.stderr)
 		assert.Equal(t, "made-up-9", d["model"])
 		assert.NotContains(t, d, "reason")
 		assert.Equal(t, map[string]any{"effort": map[string]any{"code": nullDelegated,
@@ -429,8 +435,9 @@ func keys(m map[string]any) []string {
 	return out
 }
 
-func TestApp_EffortWithoutEffortArgs(t *testing.T) {
-	// gamma has no effort_args and models without efforts, so a caller's --effort cannot be passed
+func TestApp_NoEffortArgs(t *testing.T) {
+	// gamma has no effort_args and models without efforts: a native effort flag is not detected, so it
+	// passes through unchanged and the selection never reports an effort
 	gamma := strings.NewReplacer("COMMAND", helperCommand(t)).Replace(`
 [cli.gamma]
 command     = COMMAND
@@ -444,18 +451,13 @@ cli         = gamma
 name        = plain-1
 description = The only gamma model.
 `)
-	const warning = "agrouter: warning: dropped --effort high: gamma has no effort_args to pass it\n"
 	tests := []struct {
-		name        string
-		argv        []string
-		wantWarning bool
-		wantCode    string
+		name string
+		argv []string
 	}{
-		{name: "decision, effort dropped", argv: []string{"--cli", "gamma", "--effort", "high", "fix it"},
-			wantWarning: true, wantCode: nullEffortDropped},
-		{name: "decision, no effort asked", argv: []string{"--cli", "gamma", "fix it"}, wantCode: nullNoEffort},
-		{name: "exec, effort dropped", argv: []string{"exec", "gamma", "--effort", "high", "fix it"},
-			wantWarning: true, wantCode: nullEffortDropped},
+		{name: "decision", argv: []string{"--cli", "gamma", "fix it"}},
+		{name: "exec", argv: []string{"exec", "gamma", "fix it"}},
+		{name: "exec with a native effort flag", argv: []string{"exec", "gamma", "fix it", "--", "--effort", "high"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -464,24 +466,17 @@ description = The only gamma model.
 			r := e.run(tc.argv, nil)
 			require.Equal(t, 0, r.code, r.stderr)
 			assert.Empty(t, e.jev.requests(), "one option: no Jev request")
-
-			stderr := r.stderr
-			if tc.wantWarning {
-				var ok bool
-				stderr, ok = strings.CutPrefix(stderr, warning)
-				require.True(t, ok, "one warning first: %s", r.stderr)
-			}
-			assert.NotContains(t, stderr, "warning")
+			assert.NotContains(t, r.stderr, "warning")
 
 			out := r.stdout
 			if tc.argv[0] == "exec" {
-				out = strings.TrimPrefix(stderr, selectionPrefix)
+				out = strings.TrimPrefix(r.stderr, selectionPrefix)
 				argv, _, _ := e.child()
-				assert.NotContains(t, argv, "high", "the child never gets the effort")
+				assert.Equal(t, len(tc.argv) > 4, slices.Contains(argv, "high"), "a native effort reaches the child unchanged: %v", argv)
 			}
 			d := decision(t, out)
 			assert.Nil(t, d["effort"], "the selection never reports an effort the child does not get")
-			assert.Equal(t, tc.wantCode, d["null_reasons"].(map[string]any)["effort"].(map[string]any)["code"])
+			assert.Equal(t, nullNoEffort, d["null_reasons"].(map[string]any)["effort"].(map[string]any)["code"])
 		})
 	}
 }

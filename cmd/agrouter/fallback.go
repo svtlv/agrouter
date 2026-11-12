@@ -14,7 +14,7 @@ import (
 // Sources of an effective exec value.
 const (
 	sourceRouter          = "router"                 // agrouter chose it: the classifier, or the one option left
-	sourceCaller          = "caller"                 // --model or --effort fixed it
+	sourceNative          = "native"                 // a native model or effort argument fixed it
 	sourceVerifiedDefault = "verified_child_default" // left to the child, whose probe reported its default
 	sourceUnknownDefault  = "child_default_unknown"  // left to the child, whose default is not known
 )
@@ -87,7 +87,7 @@ func (a *app) execSelection(cli config.CLI, req *args.Request, d routed) (select
 		}
 	}
 
-	model := effective(s.Model, req.Model, pre.report.Defaults.Model, "")
+	model := effective(s.Model, req.Native[cli.Name].Model, pre.report.Defaults.Model, "")
 	var effort *effectiveValueJSON
 	if !d.NoEffort {
 		// the probe's default effort belongs to the child's default model, not to one agrouter set
@@ -95,7 +95,7 @@ func (a *app) execSelection(cli config.CLI, req *args.Request, d routed) (select
 		if def != nil && s.Model != nil && !pre.ev.SameModel(*s.Model, deref(pre.report.Defaults.Model)) {
 			def, why = nil, defaultOtherModel
 		}
-		effort = effective(s.Effort, req.Effort, def, why)
+		effort = effective(s.Effort, req.Native[cli.Name].Effort, def, why)
 	}
 	if s.Model == nil || (s.Effort == nil && !d.NoEffort) {
 		s.Effective = &effectiveJSON{Model: model, Effort: effort}
@@ -118,13 +118,13 @@ func (a *app) execSelection(cli config.CLI, req *args.Request, d routed) (select
 	return s, nil
 }
 
-// effective is a value's effective form: chosen (by the caller when fixed is set, else by agrouter),
+// effective is a value's effective form: chosen (natively when fixed is set, else by agrouter),
 // or the default reported by the probe in agrouter's configured context.
 // why is the reason for a default that is not reported, defaultNotReported when empty.
 func effective(chosen *string, fixed string, def *string, why string) *effectiveValueJSON {
 	switch {
 	case chosen != nil && fixed != "":
-		return &effectiveValueJSON{Value: chosen, Source: sourceCaller}
+		return &effectiveValueJSON{Value: chosen, Source: sourceNative}
 	case chosen != nil:
 		return &effectiveValueJSON{Value: chosen, Source: sourceRouter}
 	case def != nil:

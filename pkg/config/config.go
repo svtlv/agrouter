@@ -17,9 +17,12 @@ const (
 type Config struct {
 	Agrouter   Agrouter
 	Classifier Classifier
-	CLIs       []CLI             // in the order their sections first appear across the layers
-	Models     []Model           // catalog order: the order their sections first appear across the layers
-	Efforts    map[string]Effort // keyed "<cli>.<level>"
+	CLIs       []CLI // in the order their sections first appear across the layers
+	// DisabledCLIs names the [cli.<name>] sections with enabled = false, in section order, so a
+	// disabled name can still be told from other words
+	DisabledCLIs []string
+	Models       []Model           // catalog order: the order their sections first appear across the layers
+	Efforts      map[string]Effort // keyed "<cli>.<level>"
 }
 
 // Agrouter is the [agrouter] section.

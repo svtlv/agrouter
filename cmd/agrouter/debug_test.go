@@ -64,7 +64,7 @@ func TestDebug_Redaction(t *testing.T) {
 	if strings.ContainsAny(command, " \\") {
 		command = strconv.Quote(command)
 	}
-	assert.Equal(t, "command: "+command+" -p <2 raw argument(s)> --model fast-1 --effort low -- <prompt>", lines[12])
+	assert.Equal(t, "command: "+command+" -p --model fast-1 --effort low <2 raw argument(s)> -- <prompt>", lines[12])
 	assert.NotContains(t, r.stderr, secret)
 	assert.NotContains(t, r.stderr, "raw-two")
 	assert.NotContains(t, r.stderr, testKey)
@@ -100,7 +100,7 @@ func TestDebug_JevFailureEchoingKey(t *testing.T) {
 	assert.Equal(t, "api key: from flag", lines[0])
 	assert.Equal(t, "stage cli: skipped (codex)", lines[3], "the stage completed before the failure")
 	assert.True(t, strings.HasPrefix(lines[4], "classifier failed: model stage: route request: "), lines[4])
-	assert.Contains(t, lines[4], "running codex with the caller's fixed values")
+	assert.Contains(t, lines[4], "running codex with the native values and the child's defaults")
 	assert.Equal(t, "command: codex exec -- <prompt>", lines[5])
 	assert.NotContains(t, r.stderr, "flag-secret-key")
 	assert.NotContains(t, r.stdout, "flag-secret-key")
@@ -120,8 +120,9 @@ func TestDebug_NoKeyAndNoDecision(t *testing.T) {
 
 func TestDebug_SingleOption(t *testing.T) {
 	e := newEnv(t)
+	e.fakeCommands()
 	t.Setenv(envDebug, "1")
-	r := e.run([]string{"--model", "claude-opus-5-5", "--effort", "high", "fix it"}, nil)
+	r := e.run([]string{"exec", "claude", "fix it", "--", "--model", "claude-opus-5-5", "--effort", "high"}, nil)
 	require.Equal(t, 0, r.code, r.stderr)
 	assert.Contains(t, debugLines(r.stderr), "one option, classifier not asked: claude-opus-5-5@high")
 	assert.Empty(t, e.jev.requests())
@@ -280,7 +281,7 @@ agrouter debug: stage model: pooled choice b, confidence 0.550, top [b 0.550]
 		assert.Equal(t, `agrouter debug: doc 1/2: score 8.250, evidence 0.900, confidence 0.800, tokens: estimated 4000, provider reported 4100
 agrouter debug: doc 2/2: score 1.000, evidence 0.100, confidence 0.200, tokens: estimated 50, provider reported unknown
 agrouter debug: project complexity: 6.9
-agrouter debug: classifier failed: boom; running made-up with the caller's fixed values
+agrouter debug: classifier failed: boom; running made-up with the native values and the child's defaults
 `, buf.String())
 	})
 
@@ -322,7 +323,7 @@ func TestDebug_Readiness(t *testing.T) {
 		r.Defaults.Model = &model
 		return r
 	})
-	r := e.run([]string{"exec", "alpha", "--model=fast-1", "--effort=low", "--api-key=" + testKey, "fix it"}, nil)
+	r := e.run([]string{"exec", "alpha", "--api-key=" + testKey, "fix it", "--", "--model", "fast-1", "--effort", "low"}, nil)
 	require.Equal(t, 0, r.code, r.stderr)
 
 	var lines []string

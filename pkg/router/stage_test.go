@@ -125,13 +125,13 @@ func TestGroups(t *testing.T) {
 		{name: "a model without efforts is one effort group", opts: catalog.ByModel(cat.Options, "fast"),
 			level: routeLevels[2], labels: []string{""}, ids: [][]string{{"fast"}}},
 		{name: "model passthrough: one model group named by the model",
-			opts:  optsOf(&args.Request{Model: "unknown-model"}),
-			level: routeLevels[1], labels: []string{"unknown-model"}, ids: [][]string{{"alpha", "beta"}}},
+			opts:  optsOf(&args.Request{Native: natAll("unknown-model", "")}),
+			level: routeLevels[1], labels: []string{"unknown-model"}, ids: [][]string{{"alpha@", "beta@"}}},
 		{name: "model passthrough: one CLI group each",
-			opts:  optsOf(&args.Request{Model: "unknown-model"}),
-			level: routeLevels[0], labels: []string{"alpha", "beta"}, ids: [][]string{{"alpha"}, {"beta"}}},
+			opts:  optsOf(&args.Request{Native: natAll("unknown-model", "")}),
+			level: routeLevels[0], labels: []string{"alpha", "beta"}, ids: [][]string{{"alpha@"}, {"beta@"}}},
 		{name: "effort passthrough: one effort group per model",
-			opts:  optsOf(&args.Request{CLI: "alpha", Effort: "turbo"}),
+			opts:  optsOf(&args.Request{CLI: "alpha", Native: natAll("", "turbo")}),
 			level: routeLevels[2], labels: []string{"", ""}, ids: [][]string{{"strong"}, {"fast"}}},
 	}
 	for _, tc := range tests {
@@ -173,30 +173,30 @@ func TestRouteStagesFixedByPassedValues(t *testing.T) {
 			asked:  []string{LevelModel, LevelEffort},
 			stages: []Stage{stage("cli", "alpha", true), stage("model", "strong", false), stage("effort", "low", false)},
 			want:   "strong@low"},
-		{name: "catalog --model: only effort asked", req: &args.Request{Model: "strong-model"},
+		{name: "catalog --model: only effort asked", req: &args.Request{Native: natOf("alpha", "strong-model", "")},
 			pick: "strong@high", asked: []string{LevelEffort},
 			stages: []Stage{stage("cli", "alpha", true), stage("model", "strong", true), stage("effort", "high", false)},
 			want:   "strong@high"},
-		{name: "passthrough --model: only cli asked", req: &args.Request{Model: "unknown-model"},
+		{name: "passthrough --model: only cli asked", req: &args.Request{Native: natAll("unknown-model", "")},
 			pick: "beta", asked: []string{LevelCLI},
 			stages: []Stage{stage("cli", "beta", false), stage("model", "unknown-model", true), stage("effort", "", true)},
-			want:   "beta"},
+			want:   "beta@"},
 		{name: "passthrough --model and --effort: the effort passes through",
-			req:  &args.Request{Model: "unknown-model", Effort: "turbo"},
+			req:  &args.Request{Native: natAll("unknown-model", "turbo")},
 			pick: "alpha", asked: []string{LevelCLI},
 			stages: []Stage{stage("cli", "alpha", false), stage("model", "unknown-model", true), stage("effort", "turbo", true)},
-			want:   "alpha"},
-		{name: "--effort: effort never asked", req: &args.Request{Effort: "high"},
+			want:   "alpha@"},
+		{name: "--effort: effort never asked", req: &args.Request{Native: natAll("", "high")},
 			pick: "worker@high", asked: []string{LevelCLI},
 			stages: []Stage{stage("cli", "beta", false), stage("model", "worker", true), stage("effort", "high", true)},
 			want:   "worker@high"},
 		{name: "effort passthrough: model asked, the passed effort recorded",
-			req:  &args.Request{CLI: "alpha", Effort: "turbo"},
+			req:  &args.Request{CLI: "alpha", Native: natAll("", "turbo")},
 			pick: "strong", asked: []string{LevelModel},
 			stages: []Stage{stage("cli", "alpha", true), stage("model", "strong", false), stage("effort", "turbo", true)},
 			want:   "strong"},
 		{name: "all three passed: classifier not asked",
-			req:    &args.Request{CLI: "alpha", Model: "strong-model", Effort: "high"},
+			req:    &args.Request{CLI: "alpha", Native: natAll("strong-model", "high")},
 			stages: []Stage{stage("cli", "alpha", true), stage("model", "strong", true), stage("effort", "high", true)},
 			want:   "strong@high"},
 		{name: "an unusable --cli fixes nothing", req: &args.Request{CLI: "nope"}, pick: "worker@low",
@@ -226,7 +226,7 @@ func TestRouteStagesFixedByPassedValues(t *testing.T) {
 func TestRoutePassedValuesInStageCriteria(t *testing.T) {
 	cfg, cat := requestFixture(t)
 	t.Run("passthrough --model: every cli criterion carries the model", func(t *testing.T) {
-		req := &args.Request{Model: "unknown-model"}
+		req := &args.Request{Native: natAll("unknown-model", "")}
 		client := choosing("beta")
 		_, err := newRouter(t, cfg, cat, client).Route(context.Background(), Eligible(cat, req), req, captured("x"))
 		require.NoError(t, err)
@@ -239,7 +239,7 @@ func TestRoutePassedValuesInStageCriteria(t *testing.T) {
 		}
 	})
 	t.Run("--effort passthrough: every model criterion carries the effort", func(t *testing.T) {
-		req := &args.Request{CLI: "alpha", Effort: "turbo"}
+		req := &args.Request{CLI: "alpha", Native: natAll("", "turbo")}
 		client := choosing("strong")
 		_, err := newRouter(t, cfg, cat, client).Route(context.Background(), Eligible(cat, req), req, captured("x"))
 		require.NoError(t, err)
@@ -349,7 +349,7 @@ func TestRouteStageFailure(t *testing.T) {
 		assert.Empty(t, d.CLI)
 	})
 	t.Run("one CLI eligible: runs with the caller's fixed values only", func(t *testing.T) {
-		req := &args.Request{Model: "strong-model"}
+		req := &args.Request{Native: natOf("alpha", "strong-model", "")}
 		client := failingAt(LevelEffort, "strong@high", boom)
 		d, err := newRouter(t, cfg, cat, client).Route(context.Background(), Eligible(cat, req), req, captured("x"))
 		require.NoError(t, err)
@@ -457,7 +457,7 @@ func scoreIDs(scores []Score) []string {
 func TestLargestStage(t *testing.T) {
 	cfg, cat := requestFixture(t)
 	size := func(lv level, opts []catalog.Option) int {
-		return questionLen(lv.name, stageQuestion(cfg, lv, wholeGuide, groups(opts, lv), ""))
+		return questionLen(lv.name, stageQuestion(cfg, lv, wholeGuide, groups(opts, lv), nil))
 	}
 	want := max(
 		size(routeLevels[0], cat.Options),
@@ -662,7 +662,7 @@ func TestBudgetLargestStage(t *testing.T) {
 	// measures them
 	sizes := func(cfg *config.Config, cat *catalog.Catalog, guide string) map[string]int {
 		size := func(lv level, opts []catalog.Option) int {
-			return questionLen(lv.name, stageQuestion(cfg, lv, guide, groups(opts, lv), ""))
+			return questionLen(lv.name, stageQuestion(cfg, lv, guide, groups(opts, lv), nil))
 		}
 		out := map[string]int{LevelCLI: size(routeLevels[0], cat.Options)}
 		for _, cli := range catalog.CLIs(cat.Options) {

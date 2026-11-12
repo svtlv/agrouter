@@ -20,6 +20,17 @@ func parseOK(t *testing.T, argv []string) *args.Request {
 	return cmd.req
 }
 
+// parseResolved parses argv and resolves the exec operand and --cli against the enabled synthetic CLIs
+// tool-a and tool-b and the disabled tool-off, as run does once the config is loaded.
+func parseResolved(t *testing.T, argv []string) (*args.Request, error) {
+	t.Helper()
+	cmd, err := parseArgs(argv)
+	require.NoError(t, err)
+	err = resolveExec(cmd, func(name string) bool { return name == "tool-a" || name == "tool-b" },
+		func(name string) bool { return name == "tool-off" })
+	return cmd.req, err
+}
+
 func positional(v string) args.Optional { return args.Optional{Value: v, Set: true} }
 
 func TestParseArgs_FlagsAroundPositional(t *testing.T) {
@@ -27,46 +38,90 @@ func TestParseArgs_FlagsAroundPositional(t *testing.T) {
 		name string
 		argv []string
 	}{
-		{"prompt first, split form", []string{"fix it", "--model", "m", "--effort", "high", "--verbose"}},
-		{"prompt last, = form", []string{"--model=m", "--effort=high", "--verbose", "fix it"}},
-		{"model short alias", []string{"-m", "m", "--effort=high", "fix it", "--verbose"}},
-		{"attached model short alias", []string{"-mm", "--effort=high", "fix it", "--verbose"}},
-		{"prompt in the middle, mixed", []string{"--model", "m", "fix it", "--effort=high", "--verbose"}},
+		{"prompt first", []string{"fix it", "--verbose", "--doc=a.md"}},
+		{"prompt last, = form", []string{"--doc=a.md", "--verbose", "fix it"}},
+		{"prompt in the middle", []string{"--verbose", "fix it", "--doc", "a.md"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := parseOK(t, tc.argv)
-			assert.Equal(t, args.ModeDecision, req.Mode)
-			assert.Equal(t, positional("fix it"), req.Prompt)
-			assert.Equal(t, "m", req.Model)
-			assert.Equal(t, "high", req.Effort)
-			assert.Empty(t, req.Raw)
+			cmd, err := parseArgs(tc.argv)
+			require.NoError(t, err)
+			assert.Equal(t, args.ModeDecision, cmd.req.Mode)
+			assert.Equal(t, positional("fix it"), cmd.req.Prompt)
+			assert.Equal(t, []string{"a.md"}, cmd.req.Docs)
+			assert.Empty(t, cmd.req.Raw)
 		})
 	}
 }
 
-func TestParseArgs_Mode(t *testing.T) {
+// TestParseArgs_RemovedModelEffort covers every spelling of the removed options in both modes: a fixed
+// usage error with the hint, before any config is read.
+func TestParseArgs_RemovedModelEffort(t *testing.T) {
 	tests := []struct {
-		name       string
-		argv       []string
-		wantMode   args.Mode
-		wantCLI    string
-		wantPrompt args.Optional
+		name     string
+		argv     []string
+		wantHint string
 	}{
-		{"decision, no prompt", []string{"--verbose"}, args.ModeDecision, "", args.Optional{}},
-		{"decision with prompt", []string{"hello"}, args.ModeDecision, "", positional("hello")},
-		{"exec CLI and prompt", []string{"exec", "tool-a", "hello"}, args.ModeExec, "tool-a", positional("hello")},
-		{"exec CLI alone", []string{"exec", "tool-a"}, args.ModeExec, "tool-a", args.Optional{}},
-		{"later exec is the positional", []string{"--verbose", "exec"}, args.ModeDecision, "", positional("exec")},
-		{"exec as the CLI operand", []string{"exec", "exec", "x"}, args.ModeExec, "exec", positional("x")},
-		{"empty positional is still a prompt", []string{""}, args.ModeDecision, "", positional("")},
+		{"--model split", []string{"--model", "m", "x"}, "--model/-m is not an agrouter option"},
+		{"--model =", []string{"--model=m", "x"}, "--model/-m is not an agrouter option"},
+		{"--model empty", []string{"--model=", "x"}, "--model/-m is not an agrouter option"},
+		{"-m split", []string{"-m", "m", "x"}, "--model/-m is not an agrouter option"},
+		{"-m attached", []string{"-mm", "x"}, "--model/-m is not an agrouter option"},
+		{"--effort split", []string{"--effort", "high", "x"}, "--effort is not an agrouter option"},
+		{"--effort =", []string{"--effort=high", "x"}, "--effort is not an agrouter option"},
+		{"--effort after the prompt", []string{"x", "--effort=high"}, "--effort is not an agrouter option"},
+		{"exec --model", []string{"exec", "tool-a", "--model", "m", "x"}, "--model/-m is not an agrouter option"},
+		{"exec -m without CLI", []string{"exec", "-m", "m", "x"}, "--model/-m is not an agrouter option"},
+		{"exec --effort", []string{"exec", "tool-a", "--effort", "high", "--", "--verbose"}, "--effort is not an agrouter option"},
+		{"model wins over effort", []string{"--effort=high", "--model=m", "x"}, "--model/-m is not an agrouter option"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := parseOK(t, tc.argv)
-			assert.Equal(t, tc.wantMode, req.Mode)
-			assert.Equal(t, tc.wantCLI, req.CLI)
-			assert.Equal(t, tc.wantPrompt, req.Prompt)
+			_, err := parseArgs(tc.argv)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantHint)
+			assert.Contains(t, err.Error(), `after "--"`)
+			assert.NotContains(t, err.Error(), "\n")
+		})
+	}
+
+	t.Run("after the child's separator they are native tokens", func(t *testing.T) {
+		cmd, err := parseArgs([]string{"exec", "tool-a", "x", "--", "--model", "m", "-m", "n", "--effort", "high"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"--model", "m", "-m", "n", "--effort", "high"}, cmd.req.Raw)
+	})
+}
+
+func TestParseArgs_Mode(t *testing.T) {
+	tests := []struct {
+		name         string
+		argv         []string
+		wantMode     args.Mode
+		wantOperand  string
+		wantPrompt   args.Optional
+		wantNoPrompt bool
+	}{
+		{"decision, no prompt", []string{"--verbose"}, args.ModeDecision, "", args.Optional{}, true},
+		{"decision with prompt", []string{"hello"}, args.ModeDecision, "", positional("hello"), false},
+		{"exec operand and prompt", []string{"exec", "tool-a", "hello"}, args.ModeExec, "tool-a", positional("hello"), false},
+		{"exec operand alone", []string{"exec", "tool-a"}, args.ModeExec, "tool-a", args.Optional{}, true},
+		{"exec with no operand", []string{"exec"}, args.ModeExec, "", args.Optional{}, true},
+		{"exec option first", []string{"exec", "-p", "x"}, args.ModeExec, "", args.Optional{}, true},
+		{"exec separator first", []string{"exec", "--", "x"}, args.ModeExec, "", args.Optional{}, true},
+		{"later exec is the positional", []string{"--verbose", "exec"}, args.ModeDecision, "", positional("exec"), false},
+		{"exec as the operand", []string{"exec", "exec", "x"}, args.ModeExec, "exec", positional("x"), false},
+		{"empty positional is still a prompt", []string{""}, args.ModeDecision, "", positional(""), false},
+		{"exec empty first token is a positional", []string{"exec", "", "--"}, args.ModeExec, "", positional(""), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd, err := parseArgs(tc.argv)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantMode, cmd.req.Mode)
+			assert.Equal(t, tc.wantOperand, cmd.operand)
+			assert.Empty(t, cmd.req.CLI, "the CLI is resolved against the config later")
+			assert.Equal(t, tc.wantPrompt, cmd.req.Prompt)
+			assert.Equal(t, tc.wantNoPrompt, !cmd.req.Prompt.Set)
 		})
 	}
 }
@@ -92,44 +147,62 @@ func TestParseArgs_DocumentedExamples(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, *parseOK(t, tc.argv))
+			req, err := parseResolved(t, tc.argv)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, *req)
 		})
 	}
 }
 
-func TestParseArgs_ExecCLI(t *testing.T) {
-	t.Run("redundant --cli accepted", func(t *testing.T) {
-		req := parseOK(t, []string{"exec", "tool-a", "--cli=tool-a", "x"})
-		assert.Equal(t, "tool-a", req.CLI)
-	})
-	t.Run("--cli in decision mode restricts routing", func(t *testing.T) {
-		req := parseOK(t, []string{"--cli", "tool-a", "x"})
-		assert.Equal(t, "tool-a", req.CLI)
-		req = parseOK(t, []string{"--cli=tool-a", "--cli=", "x"})
-		assert.Empty(t, req.CLI, "the last --cli wins, even empty")
-	})
-
-	errs := []struct {
-		name    string
-		argv    []string
-		wantErr string
+// TestResolveExec covers the exec command-line table: the operand is the CLI only when it names an
+// enabled one, an error when it names a disabled one, otherwise the prompt; --cli pins too, and the two must agree.
+func TestResolveExec(t *testing.T) {
+	tests := []struct {
+		name       string
+		argv       []string
+		wantCLI    string
+		wantPrompt args.Optional
+		wantErr    string
 	}{
-		{"missing operand", []string{"exec"}, "exec needs the CLI to run"},
-		{"empty operand", []string{"exec", "", "x"}, "exec needs the CLI to run"},
-		{"option instead of operand", []string{"exec", "-p", "x"}, "exec needs the CLI to run"},
-		{"--cli cannot supply the operand", []string{"exec", "--cli=tool-a", "x"}, "exec needs the CLI to run"},
-		{"separator instead of operand", []string{"exec", "--", "x"}, "exec needs the CLI to run"},
-		{"conflicting --cli", []string{"exec", "tool-a", "--cli", "tool-b", "x"}, "--cli tool-b conflicts with exec tool-a"},
-		{"empty --cli conflicts", []string{"exec", "tool-a", "--cli=", "x"}, "conflicts with exec tool-a"},
+		{"operand pins", []string{"exec", "tool-a", "fix", "--", "--yes"}, "tool-a", positional("fix"), ""},
+		{"--cli pins", []string{"exec", "--cli", "tool-b", "fix"}, "tool-b", positional("fix"), ""},
+		{"--cli with a prompt operand", []string{"exec", "fix bug", "--cli=tool-b", "--", "--yes"}, "tool-b", positional("fix bug"), ""},
+		{"redundant --cli accepted", []string{"exec", "tool-a", "--cli=tool-a", "x"}, "tool-a", positional("x"), ""},
+		{"operand that is no CLI is the prompt", []string{"exec", "fix bug", "--", "--verbose"}, "", positional("fix bug"), ""},
+		{"no operand, stdin prompt", []string{"exec", "--doc=AGENTS.md", "--", "--verbose"}, "", args.Optional{}, ""},
+		{"empty operand token", []string{"exec", ""}, "", positional(""), ""},
+		{"operand and --cli disagree", []string{"exec", "tool-a", "--cli", "tool-b", "x"}, "", args.Optional{}, "--cli tool-b conflicts with exec tool-a"},
+		{"empty --cli conflicts", []string{"exec", "tool-a", "--cli=", "x"}, "", args.Optional{}, "conflicts with exec tool-a"},
+		{"unknown --cli", []string{"exec", "--cli=nope", "x"}, "", args.Optional{}, "exec --cli nope: not a configured, enabled CLI"},
+		{"disabled operand", []string{"exec", "tool-off"}, "", args.Optional{}, "exec tool-off: not a configured, enabled CLI"},
+		{"disabled operand with a prompt", []string{"exec", "tool-off", "x"}, "", args.Optional{}, "exec tool-off: not a configured, enabled CLI"},
+		{"prompt operand and a second positional", []string{"exec", "fix bug", "more"}, "", args.Optional{}, "more than one positional"},
+		{"empty --cli is no pin", []string{"exec", "--cli=", "x"}, "", positional("x"), ""},
+		{"--cli in decision mode restricts routing", []string{"--cli", "tool-a", "x"}, "tool-a", positional("x"), ""},
+		{"the last --cli wins, even empty", []string{"--cli=tool-a", "--cli=", "x"}, "", positional("x"), ""},
 	}
-	for _, tc := range errs {
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := parseArgs(tc.argv)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tc.wantErr)
-			assert.NotContains(t, err.Error(), "\n")
+			req, err := parseResolved(t, tc.argv)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+				assert.NotContains(t, err.Error(), "\n")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantCLI, req.CLI)
+			assert.Equal(t, tc.wantPrompt, req.Prompt)
 		})
 	}
+}
+
+func TestResolveExec_PromptFlagKeepsCLIWord(t *testing.T) {
+	cmd, err := parseArgs([]string{"exec", "-p", "tool-a"})
+	require.NoError(t, err)
+	require.NoError(t, resolveExec(cmd, func(string) bool { return true }, func(string) bool { return false }))
+	assert.Empty(t, cmd.req.CLI, "a word after -p is the prompt, not the CLI")
+	assert.Equal(t, positional("tool-a"), cmd.req.PromptFlag)
 }
 
 func TestParseArgs_OwnFlags(t *testing.T) {
@@ -154,11 +227,6 @@ func TestParseArgs_OwnFlags(t *testing.T) {
 		req := parseOK(t, []string{"--api-key", "k-1", "x"})
 		assert.Equal(t, args.Optional{Value: "k-1", Set: true}, req.APIKey)
 	})
-	t.Run("--model and --effort are constraints", func(t *testing.T) {
-		req := parseOK(t, []string{"--model", "m-1", "--effort=high", "x"})
-		assert.Equal(t, "m-1", req.Model)
-		assert.Equal(t, "high", req.Effort)
-	})
 	t.Run("--help", func(t *testing.T) {
 		cmd, err := parseArgs([]string{"--verbose", "--help"})
 		require.NoError(t, err)
@@ -168,7 +236,10 @@ func TestParseArgs_OwnFlags(t *testing.T) {
 		assert.NotContains(t, strings.ToLower(cmd.help), "jev")
 		assert.Contains(t, cmd.help, "process")
 		assert.Contains(t, cmd.help, "--cli=NAME")
-		assert.Contains(t, cmd.help, "exec CLI")
+		assert.Contains(t, cmd.help, "exec [CLI]")
+		assert.NotContains(t, cmd.help, "--model=", "the removed options are hidden")
+		assert.NotContains(t, cmd.help, "--effort=")
+		assert.NotContains(t, cmd.help, "-m, ")
 		assert.Contains(t, cmd.help, "-p, --prompt=TEXT")
 		assert.Contains(t, cmd.help, "--print=TEXT")
 		assert.Contains(t, cmd.help, "--prompt-file=PATH")
@@ -284,9 +355,10 @@ func TestParseArgs_Raw(t *testing.T) {
 
 func TestParseArgs_SlashTokens(t *testing.T) {
 	// go-flags on Windows takes "/x" as an option; prompts and values starting with "/" must survive
-	req := parseOK(t, []string{"--model", "/models/m", "--doc=/weird", "/review the diff"})
+	cmd, err := parseArgs([]string{"--doc=/weird", "/review the diff"})
+	require.NoError(t, err)
+	req := cmd.req
 	assert.Equal(t, positional("/review the diff"), req.Prompt)
-	assert.Equal(t, "/models/m", req.Model)
 	assert.Equal(t, []string{"/weird"}, req.Docs)
 }
 
