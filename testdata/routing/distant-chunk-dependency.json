@@ -10,8 +10,8 @@
   "acceptable": [
     "claude-opus-5-5@high",
     "claude-opus-5-5@xhigh",
-    "claude-fable-5-1@high",
-    "claude-fable-5-1@medium",
+    "claude-fable-5-2@high",
+    "claude-fable-5-2@medium",
     "gpt-6-astra@high",
     "gpt-6-astra@xhigh",
     "gpt-6.1-sol@xhigh",
