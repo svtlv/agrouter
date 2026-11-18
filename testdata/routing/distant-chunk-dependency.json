@@ -12,14 +12,14 @@
     "claude-opus-5-5@xhigh",
     "claude-fable-5-2@high",
     "claude-fable-5-2@medium",
-    "gpt-6-astra@high",
-    "gpt-6-astra@xhigh",
-    "gpt-6.1-sol@xhigh",
-    "gpt-6.1-sol@max",
+    "gpt-6.2-astra@high",
+    "gpt-6.2-astra@xhigh",
+    "gpt-6.2-sol@xhigh",
+    "gpt-6.2-sol@max",
     "claude-sonnet-5-5@high",
     "claude-opus-5-5@low",
     "claude-opus-5-5@medium",
-    "gpt-6.1-sol@medium",
-    "gpt-6.1-sol@high"
+    "gpt-6.2-sol@medium",
+    "gpt-6.2-sol@high"
   ]
 }

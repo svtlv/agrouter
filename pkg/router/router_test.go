@@ -105,18 +105,18 @@ func TestRouteSingleOptionPassthrough(t *testing.T) {
 }
 
 func TestRouteClassifierChoice(t *testing.T) {
-	cfg, cat := embedded(t)
-	client := choosing("gpt-6.1-sol@medium")
+	cfg, cat := requestFixture(t)
+	client := choosing("strong@high")
 	r := newRouter(t, cfg, cat, client)
 
 	req := &args.Request{}
 	el := Eligible(cat, req)
 	d, err := r.Route(context.Background(), el, req, captured("fix it"))
 	require.NoError(t, err)
-	assert.Equal(t, "codex", d.CLI)
-	assert.Equal(t, "gpt-6.1-sol", d.Model)
-	assert.Equal(t, "medium", d.Effort)
-	assert.Equal(t, "gpt-6.1-sol@medium", d.OptionID)
+	assert.Equal(t, "alpha", d.CLI)
+	assert.Equal(t, "strong-model", d.Model)
+	assert.Equal(t, "high", d.Effort)
+	assert.Equal(t, "strong@high", d.OptionID)
 	require.Len(t, d.Stages, 3)
 	for _, st := range d.Stages {
 		require.NotNil(t, st.Answer, st.Level)
@@ -425,7 +425,7 @@ func TestRouteMalformedAnswers(t *testing.T) {
 		want    error
 	}{
 		{name: "missing stage answer", answers: map[string]classifier.Answer{}, want: classifier.ErrEmptyAnswer},
-		{name: "choice outside the criteria", answers: map[string]classifier.Answer{LevelModel: {Choice: "gpt-6.1-sol",
+		{name: "choice outside the criteria", answers: map[string]classifier.Answer{LevelModel: {Choice: "unknown-model",
 			Probabilities: map[string]float64{"claude-opus-5-5": 0.5, "claude-sonnet-5-5": 0.5, "claude-haiku-5-5": 0,
 				"claude-fable-5-1": 0}}}, want: classifier.ErrInvalidAnswer},
 		{name: "missing probability", answers: map[string]classifier.Answer{LevelModel: {Choice: "claude-opus-5-5",

@@ -156,13 +156,13 @@ Decision mode:
 
 ```sh
 agrouter -p "fix the flaky test in pkg/foo"
-# {"cli":"codex","model":"gpt-6.1-sol","effort":"medium","confidence":{"cli":0.82,"model":0.64,"effort":0.41}}
+# {"cli":"codex","model":"gpt-6.2-sol","effort":"medium","confidence":{"cli":0.82,"model":0.64,"effort":0.41}}
 ```
 
 Add `--verbose` for indented JSON with every stage, chunk and option, plus a readable command. The default stays on one JSON line. For example, with project docs the concise result can be:
 
 ```json
-{"cli":"codex","model":"gpt-6.1-sol","effort":"medium","project_complexity":"6.9/10","confidence":{"cli":0.82,"model":0.64,"effort":0.41,"project_complexity":0.9}}
+{"cli":"codex","model":"gpt-6.2-sol","effort":"medium","project_complexity":"6.9/10","confidence":{"cli":0.82,"model":0.64,"effort":0.41,"project_complexity":0.9}}
 ```
 
 `project_complexity` is the final project score formatted as `score/10` with one decimal, for example `5.1/10` and is omitted when the complexity stage did not complete. In verbose output, `argv` holds the `-p`, positional and `--prompt-file` text, joined like the routing prompt, as its last token, after `--` in the shipped `prompt_args`, so text that starts with `-` reaches the child as the prompt and never as one of its flags. It never holds stdin: a caller that piped a prompt must send it to the child itself. `--doc` is never in `argv`; the child loads its own `CLAUDE.md`/`AGENTS.md`. `effort` is `null` for a model without efforts, and `cli` is `null` only when routing failed with more than one CLI left (see [Failure and null reasons](#failure-and-null-reasons)).

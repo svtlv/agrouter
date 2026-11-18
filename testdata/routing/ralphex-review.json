@@ -6,8 +6,8 @@
     "claude-opus-5-5@xhigh",
     "claude-sonnet-5-5@high",
     "claude-sonnet-5-5@xhigh",
-    "gpt-6.1-sol@high",
-    "gpt-6.1-sol@xhigh",
-    "gpt-6-astra@high"
+    "gpt-6.2-sol@high",
+    "gpt-6.2-sol@xhigh",
+    "gpt-6.2-astra@high"
   ]
 }

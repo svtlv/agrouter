@@ -225,12 +225,13 @@ func TestRunEvalCase(t *testing.T) {
 	})
 
 	t.Run("wrong", func(t *testing.T) {
-		r := newRouter(t, cfg, cat, evalMock("gpt-6-astra@ultra"))
-		res := runEvalCase(ctx, r, cat, evalCase{Name: "w", Prompt: "x", Acceptable: []string{"claude-haiku-5-5@low"}},
+		fixtureCfg, fixtureCat := requestFixture(t)
+		r := newRouter(t, fixtureCfg, fixtureCat, evalMock("strong@high"))
+		res := runEvalCase(ctx, r, fixtureCat, evalCase{Name: "w", Prompt: "x", Acceptable: []string{"worker@low"}},
 			t.TempDir())
 		require.NoError(t, res.Err)
 		assert.False(t, res.Correct)
-		assert.Equal(t, "gpt-6-astra@ultra", res.Chosen)
+		assert.Equal(t, "strong@high", res.Chosen)
 		require.NotEmpty(t, res.Stages)
 		for _, st := range res.Stages {
 			assert.False(t, st.Correct, st.Level)

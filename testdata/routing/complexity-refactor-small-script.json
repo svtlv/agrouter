@@ -13,7 +13,7 @@
     "claude-sonnet-5-5@medium",
     "gpt-6-luna@low",
     "gpt-6-luna@medium",
-    "gpt-6.1-sol@low",
-    "gpt-6.1-sol@medium"
+    "gpt-6.2-sol@low",
+    "gpt-6.2-sol@medium"
   ]
 }

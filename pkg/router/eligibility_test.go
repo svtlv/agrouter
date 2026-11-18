@@ -139,9 +139,10 @@ func TestEligibleModel(t *testing.T) {
 	})
 
 	t.Run("a catalog model of a CLI --cli dropped is passed through by name", func(t *testing.T) {
-		e := Eligible(cat, &args.Request{CLI: "claude", Native: natAll("gpt-6.1-sol", "")})
+		_, cat := requestFixture(t)
+		e := Eligible(cat, &args.Request{CLI: "alpha", Native: natAll("worker-model", "")})
 		assert.True(t, e.ModelPassthrough)
-		assert.Equal(t, []catalog.Option{{ID: "claude@", CLI: "claude", Name: "gpt-6.1-sol"}}, e.Options)
+		assert.Equal(t, []catalog.Option{{ID: "alpha@", CLI: "alpha", Name: "worker-model"}}, e.Options)
 	})
 }
 

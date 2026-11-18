@@ -6,9 +6,9 @@
     "claude-sonnet-5-5@high",
     "claude-opus-5-5@low",
     "claude-opus-5-5@medium",
-    "gpt-6.1-sol@medium",
-    "gpt-6.1-sol@high",
+    "gpt-6.2-sol@medium",
+    "gpt-6.2-sol@high",
     "claude-opus-5-5@high",
-    "gpt-6.1-sol@xhigh"
+    "gpt-6.2-sol@xhigh"
   ]
 }
