@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 )
 
 // probeGroup is the probe's own process group. Unlike the real child, which stays in agrouter's group,
@@ -62,6 +63,20 @@ func (g *probeGroup) release() {
 // Ctrl+C, so agrouter kills its probes before the signal ends it.
 var probeSignals = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT}
 
+// ignoredAtStart are the probeSignals that agrouter inherited as ignored. Notify catches them anyway,
+// but Stop ignores them again, so raising one again does not end agrouter.
+var ignoredAtStart = func() map[os.Signal]bool {
+	m := map[os.Signal]bool{}
+	for _, sig := range probeSignals {
+		m[sig] = signal.Ignored(sig)
+	}
+	return m
+}()
+
+// raiseGrace bounds how long forward holds the probes' Wait after it raises the signal again. The
+// signal can reach another thread later than the probe's exit, and agrouter must not exit first.
+const raiseGrace = 5 * time.Second
+
 // liveProbes are the running probe groups; while there are any, probeSignals are caught.
 var liveProbes probeSet
 
@@ -114,9 +129,14 @@ func (s *probeSet) forward(sigs chan os.Signal) {
 	// canceled before its spawn
 	s.spawning.Lock()
 	defer s.spawning.Unlock()
-	s.cancel(sigs)
-	if sig, ok := sig.(syscall.Signal); ok {
+	// mu stays held until the raised signal ends agrouter: a killed probe's Wait removes its group
+	// under mu, so the caller cannot see the probe end and exit normally before the signal arrives
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cancelLocked(sigs)
+	if sig, ok := sig.(syscall.Signal); ok && !ignoredAtStart[sig] {
 		_ = syscall.Kill(os.Getpid(), sig)
+		time.Sleep(raiseGrace)
 	}
 }
 
@@ -125,6 +145,11 @@ func (s *probeSet) forward(sigs chan os.Signal) {
 func (s *probeSet) cancel(sigs chan os.Signal) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cancelLocked(sigs)
+}
+
+// cancelLocked is cancel with mu held.
+func (s *probeSet) cancelLocked(sigs chan os.Signal) {
 	for g := range s.groups {
 		g.canceled = true
 		_ = g.kill()
