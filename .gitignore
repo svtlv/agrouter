@@ -34,3 +34,6 @@ go.work.sum
 # agrouter build output
 .bin/
 coverage_no_mocks.out
+
+# goreleaser output
+dist/

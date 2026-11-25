@@ -43,3 +43,11 @@ func TestRun_UnknownFlag(t *testing.T) {
 func TestVersion_NotEmpty(t *testing.T) {
 	assert.NotEmpty(t, version())
 }
+
+func TestVersion_StampedRevision(t *testing.T) {
+	old := revision
+	t.Cleanup(func() { revision = old })
+
+	revision = "v9.8.7"
+	assert.Equal(t, "v9.8.7", version())
+}

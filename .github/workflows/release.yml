@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 defaults:
   run:
@@ -44,15 +45,15 @@ jobs:
       - name: test
         run: go test ./...
 
-      - name: create release
+      # builds the archives, publishes the release with GitHub's generated notes and
+      # opens a pull request that updates the Homebrew cask in Casks/agrouter.rb
+      - name: release with goreleaser
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: v2.20.3
+          args: release --clean
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          flags=()
-          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
-            flags+=(--prerelease)
-          fi
-          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes "${flags[@]}"
+          GITHUB_TOKEN: ${{ github.token }}
 
       # makes `go install github.com/svtlv/agrouter/cmd/agrouter@<tag>` resolvable right away;
       # the proxy can only fetch the module when the repository is public
