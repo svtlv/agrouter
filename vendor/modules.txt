@@ -54,6 +54,6 @@ golang.org/x/tools/internal/pkgbits
 golang.org/x/tools/internal/stdlib
 golang.org/x/tools/internal/typesinternal
 golang.org/x/tools/internal/versions
-# gopkg.in/ini.v1 v1.67.3
+# gopkg.in/ini.v1 v1.68.0
 ## explicit; go 1.13
 gopkg.in/ini.v1
