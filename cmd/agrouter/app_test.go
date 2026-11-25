@@ -385,12 +385,12 @@ func (e *env) child() (argv []string, stdin []byte, environ []string) {
 	return argv, stdin, environ
 }
 
-// decision decodes the one decision-mode JSON line.
 // unknownNotProbed is the effective value of a field left to the child in decision mode.
 func unknownNotProbed() map[string]any {
 	return map[string]any{"value": nil, "source": sourceUnknownDefault, "reason": map[string]any{"code": defaultNotProbed}}
 }
 
+// decision decodes the one decision-mode JSON line.
 func decision(t *testing.T, stdout string) map[string]any {
 	t.Helper()
 	require.True(t, strings.HasSuffix(stdout, "\n"), stdout)
