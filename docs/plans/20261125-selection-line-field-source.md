@@ -91,10 +91,10 @@ Note: every chosen CLI gets one source per field. Only a model without effort le
 - Modify: `docs/backlog/README.md`
 - Delete: `docs/backlog/selection-line-lacks-field-source.md`
 
-- [ ] README decision examples at lines 159, 165 and 246: add `effective` to each so it matches the new output (both fields `router` at 159 and 165; at 246 `--cli=alpha` with null model and effort, so both `child_default_unknown` with reason `default_not_probed`)
-- [ ] README line about 180: `effective` is now in both modes, not exec only
-- [ ] README "Exec fallback" field table: `effective` is always present when a CLI is chosen (exec and decision mode), absent when `cli` is null and on the after-routing block line; `effort` is absent for a model without effort levels
-- [ ] README source table: add `default_not_probed` (decision mode, or no probe result) to `child_default_unknown`; add a sentence that decision mode reports only `router` or `child_default_unknown`; update the example selection line if needed
-- [ ] CLAUDE.md and AGENTS.md stdout rule (keep both files identical): name `effective` beside `reason` and `null_reasons` as always present for a chosen CLI, and state the exception that the selection line before an after-routing block (`agrouter: run skipped: ...`) has no `effective`, `fallback` or `readiness`, as the README says
-- [ ] delete `docs/backlog/selection-line-lacks-field-source.md` and remove its entry and section from `docs/backlog/README.md`; leave a "no open items" line when the list is empty
-- [ ] run `make test` and `make lint` once more
+- [x] README decision examples at lines 159, 165 and 246: add `effective` to each so it matches the new output (both fields `router` at 159 and 165; at 246 `--cli=alpha` with null model and effort, so both `child_default_unknown` with reason `default_not_probed`)
+- [x] README line about 180: `effective` is now in both modes, not exec only
+- [x] README "Exec fallback" field table: `effective` is always present when a CLI is chosen (exec and decision mode), absent when `cli` is null and on the after-routing block line; `effort` is absent for a model without effort levels
+- [x] README source table: add `default_not_probed` (decision mode, or no probe result) to `child_default_unknown`; add a sentence that decision mode reports only `router` or `child_default_unknown`; update the example selection line if needed
+- [x] CLAUDE.md and AGENTS.md stdout rule (keep both files identical): name `effective` beside `reason` and `null_reasons` as always present for a chosen CLI, and state the exception that the selection line before an after-routing block (`agrouter: run skipped: ...`) has no `effective`, `fallback` or `readiness`, as the README says
+- [x] delete `docs/backlog/selection-line-lacks-field-source.md` and remove its entry and section from `docs/backlog/README.md`; leave a "no open items" line when the list is empty
+- [x] run `make test` and `make lint` once more
