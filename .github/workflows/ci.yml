@@ -33,6 +33,19 @@ jobs:
       - name: test
         run: make test RACE=-race
 
+      - name: test release installer
+        if: matrix.os != 'windows-latest'
+        run: python3 scripts/install_test.py
+
+      # the windows installer has no offline test; parsing it catches syntax errors
+      - name: parse windows installer
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/install-windows.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_.ToString() }; exit 1 }
+
       - name: coverage profile without mocks
         if: matrix.os == 'ubuntu-latest'
         run: |

@@ -28,9 +28,68 @@ brew update
 brew upgrade --cask agrouter
 ```
 
+### Linux and macOS installer
+
+Install the latest release for `amd64` or `arm64`, without Go or root access:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/svtlv/agrouter/master/scripts/install.sh | sh
+```
+
+The installer verifies the archive's SHA-256 checksum against the release's `checksums.txt` and installs `agrouter` into `~/.local/bin`. If that directory is not on `PATH`, add it to your shell configuration (`~/.zshrc` for Zsh or `~/.bashrc` for Bash), then open a new terminal:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+agrouter --version
+```
+
+Run the installer again to update. To pin a release or choose another directory:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/svtlv/agrouter/master/scripts/install.sh \
+  | AGROUTER_VERSION=v1.0.0 AGROUTER_INSTALL_DIR="$HOME/bin" sh
+```
+
+### Linux packages
+
+Download the `.deb` or `.rpm` for your architecture (`amd64` or `arm64`) from the [releases](https://github.com/svtlv/agrouter/releases), then install it with your package manager:
+
+```sh
+# Debian / Ubuntu (replace the filename with the downloaded package)
+sudo apt install ./agrouter_1.0.0_linux_amd64.deb
+
+# Fedora / RHEL
+sudo dnf install ./agrouter_1.0.0_linux_amd64.rpm
+
+agrouter --version
+```
+
+The packages install `/usr/bin/agrouter`. To update, install the newer package with the same command.
+
+### Windows installer
+
+Run this in PowerShell (no administrator rights needed):
+
+```powershell
+irm https://raw.githubusercontent.com/svtlv/agrouter/master/scripts/install-windows.ps1 | iex
+```
+
+The installer downloads the latest release for `amd64` or `arm64`, verifies its SHA-256 checksum, installs `agrouter.exe` into `%LOCALAPPDATA%\Programs\agrouter` and adds that directory to your user `Path`. Open a new terminal, then verify:
+
+```powershell
+agrouter --version
+```
+
+Run the installer again to update. To pin a release or choose another directory, set `AGROUTER_VERSION` or `AGROUTER_INSTALL_DIR` first:
+
+```powershell
+$env:AGROUTER_VERSION = "v1.0.0"
+irm https://raw.githubusercontent.com/svtlv/agrouter/master/scripts/install-windows.ps1 | iex
+```
+
 ### Release archives
 
-Each [release](https://github.com/svtlv/agrouter/releases) has archives for Linux, macOS and Windows on `amd64` and `arm64`, with a `checksums.txt`. Extract `agrouter` (`agrouter.exe` on Windows) to a directory on `PATH`.
+Each [release](https://github.com/svtlv/agrouter/releases) has archives for Linux, macOS and Windows on `amd64` and `arm64`, Linux `.deb` and `.rpm` packages, and a `checksums.txt`. Extract `agrouter` (`agrouter.exe` on Windows) to a directory on `PATH`.
 
 ### Go
 
@@ -49,7 +108,7 @@ make -f WMakefile build
 
 Both makefiles name the executable `.bin/agrouter` on `master` and `.bin/agrouter.<branch>` on other branches, with `.exe` appended for Windows builds and filename-unsafe branch characters (including `/`) replaced by `-`. For example, branch `feature/example` produces `.bin/agrouter.feature-example.exe` on Windows; a detached HEAD uses `HEAD`. `WMakefile` also supports `test`, `lint`, `fmt`, `generate` and `eval-routing`.
 
-On the first routing invocation, agrouter creates `~/.config/agrouter/config` (or the directory selected by `AGROUTER_CONFIG_DIR`) as a commented template. Installing (Homebrew, an archive or `go install`) only places the executable; `--help` and `--version` do not create config.
+On the first routing invocation, agrouter creates `~/.config/agrouter/config` (or the directory selected by `AGROUTER_CONFIG_DIR`) as a commented template. Installing (Homebrew, an installer, a package, an archive or `go install`) only places the executable; `--help` and `--version` do not create config.
 
 Before routing, edit the global config, uncomment `[classifier.typesafe]` and `api_key`, and set the API key of your classifier (TypeSafe's, with the shipped defaults). Creating the template leaves the key empty:
 
@@ -700,8 +759,9 @@ An empty `review_model` falls back to `task_model` (Ralphex's rule), while `revi
    git push origin v0.1.0
    ```
 
-3. The `release` workflow validates the tag, re-runs the tests, creates a GitHub Release with generated notes (pre-release for suffixed tags) and warms the Go module proxy. The repository must be public for the proxy to fetch the module.
-4. Install the release:
+3. The `release` workflow validates the tag, re-runs the tests, creates a GitHub Release with generated notes (pre-release for suffixed tags) and warms the Go module proxy. The release has archives for Linux, macOS and Windows, Linux `.deb` and `.rpm` packages and `checksums.txt`, which the installers in `scripts/` read. The repository must be public for the proxy to fetch the module.
+4. For a stable tag, GoReleaser pushes a `homebrew-<version>` branch and opens a PR that updates `Casks/agrouter.rb`. Review and merge it to publish the version through Homebrew. Opening the PR needs **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**; without it the release succeeds but the workflow fails with `403 GitHub Actions is not permitted to create or approve pull requests`.
+5. Install the release:
 
    ```sh
    go install github.com/svtlv/agrouter/cmd/agrouter@v0.1.0

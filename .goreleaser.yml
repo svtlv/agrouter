@@ -34,6 +34,26 @@ archives:
       - LICENSE
       - README.md
 
+# deb and rpm packages for linux; the windows and darwin builds are ignored here
+nfpms:
+  - id: agrouter
+    package_name: agrouter
+    ids:
+      - agrouter
+    file_name_template: >-
+      {{ .PackageName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    vendor: svtlv
+    homepage: https://github.com/svtlv/agrouter
+    maintainer: svtlv
+    description: Routes prompts to a coding-agent CLI, model and effort
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/agrouter/LICENSE
+
 checksum:
   name_template: checksums.txt
 
