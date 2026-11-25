@@ -6,25 +6,25 @@ cask "agrouter" do
     end
   end
 
-  version "1.0.0"
+  version "1.0.2"
 
   on_macos do
     on_arm do
-      sha256 "47319cf1f8b42ba71ac2b4ad1481a19f1d05bce74a3a74eed205d41fe7f0a610"
+      sha256 "a662c25de4d7c1a680a0bf90c09e2817ca3483c696d89f1a41ba6556a4de220d"
       url "https://github.com/svtlv/agrouter/releases/download/v#{version}/agrouter_#{version}_darwin_arm64.tar.gz"
     end
     on_intel do
-      sha256 "1c81dfa6f289b8eba8358ea9e073882233fe5a65a464e59289cfc29979ad8252"
+      sha256 "ab5adefa1905c09e45136a50cae6d6b3eec81be73e4067595efceb6a4261f11c"
       url "https://github.com/svtlv/agrouter/releases/download/v#{version}/agrouter_#{version}_darwin_amd64.tar.gz"
     end
   end
   on_linux do
     on_arm do
-      sha256 "4860c59f92d7b02e1e5e95a90e5917738d5dbf5f00c18f76870180647469f416"
+      sha256 "cce6424df5144b0494d48524b83c3c5b37582fc57e6978949620ceb66cbb659b"
       url "https://github.com/svtlv/agrouter/releases/download/v#{version}/agrouter_#{version}_linux_arm64.tar.gz"
     end
     on_intel do
-      sha256 "3634eec2dc195a5b741831f696f98f46071879499f058790b1b63eb1ab4fe809"
+      sha256 "8bf3ce67712c09a24c23065c080bffed5e17d26ccebed2a53d93f18278c96821"
       url "https://github.com/svtlv/agrouter/releases/download/v#{version}/agrouter_#{version}_linux_amd64.tar.gz"
     end
   end
