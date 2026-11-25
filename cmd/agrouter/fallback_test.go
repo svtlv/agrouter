@@ -347,6 +347,8 @@ func TestApp_ExecNativeReporting(t *testing.T) {
 		s := selectionLog(t, r.stderr)
 		assert.Equal(t, "deep-1", s["model"])
 		assert.Equal(t, "low", s["effort"])
+		assert.Equal(t, map[string]any{"model": chosenBy(sourceNative, "deep-1"), "effort": chosenBy(sourceRouter, "low")},
+			s["effective"])
 	})
 
 	t.Run("a classifier failure keeps the native model with source native", func(t *testing.T) {

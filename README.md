@@ -305,7 +305,7 @@ Note: the first line is readable without parsing JSON; the second carries the sa
 | `router` | agrouter chose it: the classifier, or the one option left |
 | `native` | a native model or effort argument after `--` fixed it |
 | `verified_child_default` | the child's own default, as its prompt-free probe reported it for this working directory and settings |
-| `child_default_unknown` | the child's default is not known: `default_not_reported`; `default_for_other_model` when the probe reported the default effort of the child's default model, but agrouter or a native model argument set another model; or `default_not_probed` when no probe ran (decision mode, or no probe result for the chosen CLI) |
+| `child_default_unknown` | the child's default is not known: `default_not_reported`; `default_for_other_model` when the probe reported the default effort of the child's default model, but agrouter or a native model argument set another model; or `default_not_probed` when exec has no preflight result for the chosen CLI (decision mode never has one; with availability checks disabled the result exists and the reason is `default_not_reported`) |
 
 Decision mode never probes and rejects `--`, so it reports only `router` for a value that is set and `child_default_unknown` (`default_not_probed`) for a `null` one. The selection line before a `run skipped` block carries no `effective`, `fallback` or `readiness`, because it claims nothing about a run.
 
@@ -318,7 +318,7 @@ A delegated model is checked against model-scoped quota blocks. When the verifie
 Every line agrouter itself writes to stderr (warnings, errors, the `agrouter: selection:` line, the skipped lines and `AGROUTER_DEBUG=1` output) is also appended to `<log_dir>/agrouter.log`, so a caller that hides agrouter's stderr, such as Ralphex's Codex executor, still leaves the routing outcome on disk. The log is always on and has no switch. Each line is stamped:
 
 ```text
-2026-10-22T15:17:03Z pid=1234 agrouter: selection: {"cli":"codex","model":null,"effort":null}
+2026-10-22T15:17:03Z pid=1234 agrouter: selection: {"cli":"codex","model":"m-2","effort":"high","effective":{"model":{"value":"m-2","source":"router"},"effort":{"value":"high","source":"router"}}}
 ```
 
 | Key | Meaning | Default |
