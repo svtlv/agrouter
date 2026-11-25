@@ -6,7 +6,7 @@ require (
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/sys v0.50.0
-	gopkg.in/ini.v1 v1.67.3
+	gopkg.in/ini.v1 v1.68.0
 )
 
 require (
