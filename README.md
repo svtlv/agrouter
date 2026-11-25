@@ -9,7 +9,32 @@ It has two modes:
 
 ## Install
 
-Requires Go 1.27 or later. Exec mode also needs the chosen CLI (`claude`, `codex`) on `PATH`; otherwise agrouter exits `127` before routing.
+Exec mode needs the chosen CLI (`claude`, `codex`) on `PATH`; otherwise agrouter exits `127` before routing.
+
+### Homebrew (macOS and Linux)
+
+Tap the repository and install the cask:
+
+```sh
+brew tap svtlv/agrouter https://github.com/svtlv/agrouter.git
+brew install --cask agrouter
+agrouter --version
+```
+
+To update:
+
+```sh
+brew update
+brew upgrade --cask agrouter
+```
+
+### Release archives
+
+Each [release](https://github.com/svtlv/agrouter/releases) has archives for Linux, macOS and Windows on `amd64` and `arm64`, with a `checksums.txt`. Extract `agrouter` (`agrouter.exe` on Windows) to a directory on `PATH`.
+
+### Go
+
+Requires Go 1.27 or later:
 
 ```sh
 go install github.com/svtlv/agrouter/cmd/agrouter@latest
@@ -24,7 +49,7 @@ make -f WMakefile build
 
 Both makefiles name the executable `.bin/agrouter` on `master` and `.bin/agrouter.<branch>` on other branches, with `.exe` appended for Windows builds and filename-unsafe branch characters (including `/`) replaced by `-`. For example, branch `feature/example` produces `.bin/agrouter.feature-example.exe` on Windows; a detached HEAD uses `HEAD`. `WMakefile` also supports `test`, `lint`, `fmt`, `generate` and `eval-routing`.
 
-On the first routing invocation, agrouter creates `~/.config/agrouter/config` (or the directory selected by `AGROUTER_CONFIG_DIR`) as a commented template. `go install` only installs the executable; `--help` and `--version` do not create config.
+On the first routing invocation, agrouter creates `~/.config/agrouter/config` (or the directory selected by `AGROUTER_CONFIG_DIR`) as a commented template. Installing (Homebrew, an archive or `go install`) only places the executable; `--help` and `--version` do not create config.
 
 Before routing, edit the global config, uncomment `[classifier.typesafe]` and `api_key`, and set the API key of your classifier (TypeSafe's, with the shipped defaults). Creating the template leaves the key empty:
 

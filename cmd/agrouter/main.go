@@ -17,8 +17,14 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return newApp(stdin, stdout, stderr).run(args)
 }
 
-// version reports the module version recorded by `go install ...@<tag>`, or "unknown".
+// revision is the release tag stamped by the release build (-X main.revision=<tag>); empty otherwise.
+var revision string
+
+// version reports the stamped release tag, else the module version recorded by `go install ...@<tag>`, or "unknown".
 func version() string {
+	if revision != "" {
+		return revision
+	}
 	info, ok := debug.ReadBuildInfo()
 	if !ok || info.Main.Version == "" {
 		return "unknown"

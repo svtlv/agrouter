@@ -1,0 +1,74 @@
+version: 2
+
+builds:
+  - id: agrouter
+    main: ./cmd/agrouter
+    binary: agrouter
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.revision={{.Tag}}
+
+archives:
+  - id: agrouter
+    ids:
+      - agrouter
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github-native
+
+homebrew_casks:
+  - name: agrouter
+    ids:
+      - agrouter
+    binaries:
+      - agrouter
+    homepage: https://github.com/svtlv/agrouter
+    description: Routes prompts to a coding-agent CLI, model and effort
+    license: MIT
+    # pre-release tags (v1.2.0-rc.1) publish the release but leave the cask alone
+    skip_upload: auto
+    # the binaries are not notarized; drop the quarantine flag so macOS runs them
+    custom_block: |
+      on_macos do
+        postflight_steps do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "agrouter"], chdir: ".", writable_paths: ["agrouter"]
+        end
+      end
+    repository:
+      owner: svtlv
+      name: agrouter
+      branch: homebrew-{{ .Version }}
+      pull_request:
+        enabled: true
+        base:
+          owner: svtlv
+          name: agrouter
+          branch: master
+
+release:
+  prerelease: auto
+  name_template: "{{ .Tag }}"
