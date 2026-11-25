@@ -77,10 +77,10 @@ Note: every chosen CLI gets one source per field. Only a model without effort le
 
 ### Task 3: Verify acceptance criteria
 
-- [ ] check that `cmd/agrouter/guard_test.go` passes (no catalog names added)
-- [ ] run `make test`
-- [ ] run `make lint`, also with `GOOS=linux`, `GOOS=darwin` and `--build-tags=eval`
-- [ ] verify coverage of `cmd/agrouter` stays 80%+ (`go test -cover ./cmd/agrouter`)
+- [x] check that `cmd/agrouter/guard_test.go` passes (no catalog names added)
+- [x] run `make test`
+- [x] run `make lint`, also with `GOOS=linux`, `GOOS=darwin` and `--build-tags=eval`
+- [x] verify coverage of `cmd/agrouter` stays 80%+ (`go test -cover ./cmd/agrouter`)
 
 ### Task 4: Update documentation and close the backlog item
 
