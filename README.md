@@ -156,13 +156,13 @@ Decision mode:
 
 ```sh
 agrouter -p "fix the flaky test in pkg/foo"
-# {"cli":"codex","model":"gpt-6.2-sol","effort":"medium","confidence":{"cli":0.82,"model":0.64,"effort":0.41}}
+# {"cli":"codex","model":"gpt-6.2-sol","effort":"medium","confidence":{"cli":0.82,"model":0.64,"effort":0.41},"effective":{"model":{"value":"gpt-6.2-sol","source":"router"},"effort":{"value":"medium","source":"router"}}}
 ```
 
 Add `--verbose` for indented JSON with every stage, chunk and option, plus a readable command. The default stays on one JSON line. For example, with project docs the concise result can be:
 
 ```json
-{"cli":"codex","model":"gpt-6.2-sol","effort":"medium","project_complexity":"6.9/10","confidence":{"cli":0.82,"model":0.64,"effort":0.41,"project_complexity":0.9}}
+{"cli":"codex","model":"gpt-6.2-sol","effort":"medium","project_complexity":"6.9/10","confidence":{"cli":0.82,"model":0.64,"effort":0.41,"project_complexity":0.9},"effective":{"model":{"value":"gpt-6.2-sol","source":"router"},"effort":{"value":"medium","source":"router"}}}
 ```
 
 `project_complexity` is the final project score formatted as `score/10` with one decimal, for example `5.1/10` and is omitted when the complexity stage did not complete. In verbose output, `argv` holds the `-p`, positional and `--prompt-file` text, joined like the routing prompt, as its last token, after `--` in the shipped `prompt_args`, so text that starts with `-` reaches the child as the prompt and never as one of its flags. It never holds stdin: a caller that piped a prompt must send it to the child itself. `--doc` is never in `argv`; the child loads its own `CLAUDE.md`/`AGENTS.md`. `effort` is `null` for a model without efforts, and `cli` is `null` only when routing failed with more than one CLI left (see [Failure and null reasons](#failure-and-null-reasons)).
@@ -177,7 +177,7 @@ agrouter reads stdin for routing and replays the same bytes to the child, so the
 
 On Windows with npm's `claude.cmd`/`codex.cmd` shims, pass a multi-line prompt on stdin: cmd.exe cannot carry a line break inside an argument, so a multi-line `-p`, positional or `--prompt-file` prompt fails to start (exit `127`). This includes any prompt combined from two sources, since they are joined with a blank line. Decision mode and native executables are unaffected.
 
-Before starting the child, exec mode logs one line to stderr: `agrouter: selection: ` followed by a JSON object with `cli`, `model`, `effort`, any completed `project_complexity` score and the same `confidence` object as decision mode, so tools such as Ralphex show the selection for each step. The prefix keeps the line from passing for one of the child's stream-json events when a caller merges stderr into stdout (Ralphex drops JSON lines that aren't events and prints other lines); strip it to parse the JSON. Model and effort are `null` when the CLI's defaults apply, with the same `reason` and `null_reasons` as decision mode, plus exec's own `fallback`, `effective` and `readiness` fields (see [Exec fallback](#exec-fallback)). The line stays concise with agrouter's `--verbose` and never includes the prompt or argv.
+Before starting the child, exec mode logs one line to stderr: `agrouter: selection: ` followed by a JSON object with `cli`, `model`, `effort`, any completed `project_complexity` score and the same `confidence` object as decision mode, so tools such as Ralphex show the selection for each step. The prefix keeps the line from passing for one of the child's stream-json events when a caller merges stderr into stdout (Ralphex drops JSON lines that aren't events and prints other lines); strip it to parse the JSON. Model and effort are `null` when the CLI's defaults apply, with the same `reason` and `null_reasons` as decision mode, plus exec's own `fallback` and `readiness` fields and the `effective` object that decision mode also carries (see [Exec fallback](#exec-fallback)). The line stays concise with agrouter's `--verbose` and never includes the prompt or argv.
 
 Decision JSON and the exec selection line include `confidence` when the classifier answered:
 
@@ -243,7 +243,7 @@ Decision JSON and the exec selection line explain a failed routing and every `nu
 Messages never carry the prompt, `--doc` text, the key or the classifier's response body. A value that was fixed (`--cli`, the exec operand, or a native model or effort) stays set after a failure. For example, `--cli=alpha` with the model stage timing out prints:
 
 ```json
-{"cli":"alpha","model":null,"effort":null,"reason":{"code":"classifier_timeout","stage":"model","message":"Classifier model selection timed out"},"null_reasons":{"model":{"code":"routing_failed","message":"Model delegated to the child after routing failed"},"effort":{"code":"routing_failed","message":"Effort delegated to the child after routing failed"}}}
+{"cli":"alpha","model":null,"effort":null,"reason":{"code":"classifier_timeout","stage":"model","message":"Classifier model selection timed out"},"null_reasons":{"model":{"code":"routing_failed","message":"Model delegated to the child after routing failed"},"effort":{"code":"routing_failed","message":"Effort delegated to the child after routing failed"}},"effective":{"model":{"value":null,"source":"child_default_unknown","reason":{"code":"default_not_probed"}},"effort":{"value":null,"source":"child_default_unknown","reason":{"code":"default_not_probed"}}}}
 ```
 
 ### Exec readiness
@@ -297,7 +297,7 @@ Note: the first line is readable without parsing JSON; the second carries the sa
 | Field | Meaning |
 |---|---|
 | `fallback` | only after a routing failure: `action` (`child_defaults`), the fallen-back `fields`, and a fixed `message` |
-| `effective` | when a model or effort is left to the child: each value's `value` and `source`, with a `reason` when the default is unknown |
+| `effective` | always when a CLI is chosen, in exec and in decision mode: each value's `value` and `source`, with a `reason` when the default is unknown. Absent when `cli` is `null` and on the selection line before a `run skipped` block. `effort` is absent for a model without effort levels |
 | `readiness` | when readiness excluded options or warned: `excluded` (option count by reason) and `unknown` (the warning's reason) |
 
 | `effective.*.source` | Meaning |
@@ -305,7 +305,9 @@ Note: the first line is readable without parsing JSON; the second carries the sa
 | `router` | agrouter chose it: the classifier, or the one option left |
 | `native` | a native model or effort argument after `--` fixed it |
 | `verified_child_default` | the child's own default, as its prompt-free probe reported it for this working directory and settings |
-| `child_default_unknown` | the child's default is not known: `default_not_reported`; or `default_for_other_model` when the probe reported the default effort of the child's default model, but agrouter or a native model argument set another model |
+| `child_default_unknown` | the child's default is not known: `default_not_reported`; `default_for_other_model` when the probe reported the default effort of the child's default model, but agrouter or a native model argument set another model; or `default_not_probed` when exec has no preflight result for the chosen CLI (decision mode never has one; with availability checks disabled the result exists and the reason is `default_not_reported`) |
+
+Decision mode never probes and rejects `--`, so it reports only `router` for a value that is set and `child_default_unknown` (`default_not_probed`) for a `null` one. The selection line before a `run skipped` block carries no `effective`, `fallback` or `readiness`, because it claims nothing about a run.
 
 Values the classifier chose before the failure (the model when only the effort stage failed) and values fixed natively keep their source and are never listed as fallbacks. Top-level `model`/`effort` stay `null` whenever agrouter passes no selection flag, even when `effective` shows a verified default. A catalog default or a model list's recommendation is never reported as verified. An intentional omission (a model without effort levels, the effort of a native model outside the catalog) is no fallback and prints no warning.
 
@@ -316,7 +318,7 @@ A delegated model is checked against model-scoped quota blocks. When the verifie
 Every line agrouter itself writes to stderr (warnings, errors, the `agrouter: selection:` line, the skipped lines and `AGROUTER_DEBUG=1` output) is also appended to `<log_dir>/agrouter.log`, so a caller that hides agrouter's stderr, such as Ralphex's Codex executor, still leaves the routing outcome on disk. The log is always on and has no switch. Each line is stamped:
 
 ```text
-2026-10-22T15:17:03Z pid=1234 agrouter: selection: {"cli":"codex","model":null,"effort":null}
+2026-10-22T15:17:03Z pid=1234 agrouter: selection: {"cli":"codex","model":"m-2","effort":"high","effective":{"model":{"value":"m-2","source":"router"},"effort":{"value":"high","source":"router"}}}
 ```
 
 | Key | Meaning | Default |

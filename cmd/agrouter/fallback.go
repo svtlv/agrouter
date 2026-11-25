@@ -11,7 +11,7 @@ import (
 	"github.com/svtlv/agrouter/pkg/router"
 )
 
-// Sources of an effective exec value.
+// Sources of an effective value: what the child runs with and who fixed it.
 const (
 	sourceRouter          = "router"                 // agrouter chose it: the classifier, or the one option left
 	sourceNative          = "native"                 // a native model or effort argument fixed it
@@ -23,12 +23,14 @@ const (
 const (
 	defaultNotReported = "default_not_reported"
 	defaultOtherModel  = "default_for_other_model"
+	defaultNotProbed   = "default_not_probed" // decision mode, or no preflight result for the chosen CLI
 )
 
 // defaultReasonTexts are the warning's words for an unknown default.
 var defaultReasonTexts = map[string]string{
 	defaultNotReported: "child did not report it",
 	defaultOtherModel:  "child reported it for another model",
+	defaultNotProbed:   "no probe ran",
 }
 
 // fallbackAction is the only fallback: the child runs with its own defaults.
@@ -41,7 +43,7 @@ type fallbackJSON struct {
 	Message string   `json:"message"`
 }
 
-// effectiveJSON is what the child will run with when exec leaves a value to it.
+// effectiveJSON is what the child runs with and who fixed each value.
 type effectiveJSON struct {
 	Model  *effectiveValueJSON `json:"model,omitempty"`
 	Effort *effectiveValueJSON `json:"effort,omitempty"`
@@ -65,41 +67,42 @@ type readinessJSON struct {
 	Unknown  string         `json:"unknown,omitempty"`
 }
 
-// execSelection is exec's selection line for d, with the fallback, the effective values left to the
-// child and the readiness summary. A delegated model whose verified default is known blocked, or
-// unverified under unknown = block, stops exec as a preflight block would.
+// execSelection is exec's selection line for d: the fallback, what the child runs with and who fixed
+// each value (effective), and the readiness summary. A delegated model whose verified default is
+// known blocked, or unverified under unknown = block, stops exec as a preflight block would; that
+// line carries no effective. Without a preflight result (d.checked is nil) no default is known, so
+// a value left to the child is unknown with the reason defaultNotProbed.
 func (a *app) execSelection(cli config.CLI, req *args.Request, d routed) (selectionJSON, *preflightError) {
 	s := selectionOutput(d, false, nil)
 	pre := d.checked
-	if pre == nil {
-		return s, nil
-	}
-	unknown := pre.ev.Unknown
-	if s.Model == nil {
-		model := pre.report.Defaults.Model
-		v := pre.ev.Model(deref(model))
-		switch {
-		case v.Status == readiness.StatusUnavailable, v.Status == readiness.StatusUnknown && unknownPolicy(cli) == config.UnknownBlock:
-			return s, preflightBlock(cli, v)
-		case v.Status == readiness.StatusUnknown && unknown == "":
-			unknown = v.Reason
-			a.warnUnknown(cli, unknown)
+	var defaults readiness.Defaults
+	unknown := ""
+	if pre != nil {
+		defaults = pre.report.Defaults
+		unknown = pre.ev.Unknown
+		if s.Model == nil {
+			v := pre.ev.Model(deref(defaults.Model))
+			switch {
+			case v.Status == readiness.StatusUnavailable, v.Status == readiness.StatusUnknown && unknownPolicy(cli) == config.UnknownBlock:
+				return s, preflightBlock(cli, v)
+			case v.Status == readiness.StatusUnknown && unknown == "":
+				unknown = v.Reason
+				a.warnUnknown(cli, unknown)
+			}
 		}
 	}
 
-	model := effective(s.Model, req.Native[cli.Name].Model, pre.report.Defaults.Model, "")
+	model := effective(s.Model, req.Native[cli.Name].Model, defaults.Model, defaultNotProbedFor(pre))
 	var effort *effectiveValueJSON
 	if !d.NoEffort {
 		// the probe's default effort belongs to the child's default model, not to one agrouter set
-		def, why := pre.report.Defaults.Effort, ""
-		if def != nil && s.Model != nil && !pre.ev.SameModel(*s.Model, deref(pre.report.Defaults.Model)) {
+		def, why := defaults.Effort, defaultNotProbedFor(pre)
+		if def != nil && s.Model != nil && !pre.ev.SameModel(*s.Model, deref(defaults.Model)) {
 			def, why = nil, defaultOtherModel
 		}
 		effort = effective(s.Effort, req.Native[cli.Name].Effort, def, why)
 	}
-	if s.Model == nil || (s.Effort == nil && !d.NoEffort) {
-		s.Effective = &effectiveJSON{Model: model, Effort: effort}
-	}
+	s.Effective = &effectiveJSON{Model: model, Effort: effort}
 
 	if d.Undecided != nil {
 		var fields []string
@@ -114,8 +117,19 @@ func (a *app) execSelection(cli config.CLI, req *args.Request, d routed) (select
 			fmt.Fprintln(a.stderr, fallbackWarning(cli.Name, s.Reason, fields, s.Effective))
 		}
 	}
-	s.Readiness = readinessSummary(pre.ev, unknown)
+	if pre != nil {
+		s.Readiness = readinessSummary(pre.ev, unknown)
+	}
 	return s, nil
+}
+
+// defaultNotProbedFor is the reason for an unreported default: defaultNotProbed when no probe ran,
+// else empty so effective picks defaultNotReported.
+func defaultNotProbedFor(pre *checked) string {
+	if pre == nil {
+		return defaultNotProbed
+	}
+	return ""
 }
 
 // effective is a value's effective form: chosen (natively when fixed is set, else by agrouter),
@@ -133,6 +147,20 @@ func effective(chosen *string, fixed string, def *string, why string) *effective
 		why = defaultNotReported
 	}
 	return &effectiveValueJSON{Source: sourceUnknownDefault, Reason: &codeJSON{why}}
+}
+
+// decisionEffective is decision mode's effective for s: nil when no CLI is chosen. Decision mode
+// rejects native arguments and never probes, so a value is router's or an unknown child default
+// with the reason defaultNotProbed. The effort stays out for a model without effort levels.
+func decisionEffective(s selectionJSON, noEffort bool) *effectiveJSON {
+	if s.CLI == nil {
+		return nil
+	}
+	e := &effectiveJSON{Model: effective(s.Model, "", nil, defaultNotProbed)}
+	if !noEffort {
+		e.Effort = effective(s.Effort, "", nil, defaultNotProbed)
+	}
+	return e
 }
 
 // fallbackMessage is the fallback's fixed message for fields.

@@ -205,6 +205,7 @@ func TestApp_ExecPreflightFiltersOptions(t *testing.T) {
 		require.Equal(t, 0, r.code, r.stderr)
 		assert.Equal(t, map[string]any{"cli": "alpha", "model": "fast-1", "effort": "high",
 			"confidence": map[string]any{"effort": 0.9},
+			"effective":  bothFields(sourceRouter, "fast-1", "high"),
 			"readiness":  map[string]any{"excluded": map[string]any{"quota_exhausted": float64(2)}}}, selectionLog(t, r.stderr))
 		assert.Equal(t, []string{"effort"}, e.jev.asked(), "one model left: only the effort stage asks Jev")
 	})
@@ -243,7 +244,8 @@ func TestApp_ExecPreflightFiltersOptions(t *testing.T) {
 		require.Equal(t, 0, r.code, r.stderr)
 		assert.Len(t, checker.CheckCalls(), 1)
 		assert.Empty(t, e.jev.requests())
-		assert.Equal(t, map[string]any{"cli": "alpha", "model": "fast-1", "effort": "low"}, selectionLog(t, r.stderr),
+		assert.Equal(t, map[string]any{"cli": "alpha", "model": "fast-1", "effort": "low",
+			"effective": bothFields(sourceNative, "fast-1", "low")}, selectionLog(t, r.stderr),
 			"no warning when everything is verified")
 	})
 }
@@ -274,7 +276,8 @@ func TestApp_ExecPreflightWithoutProvider(t *testing.T) {
 		assert.Len(t, checker.CheckCalls(), 2, "every candidate CLI is probed")
 		assert.Equal(t, []string{"effort"}, e.jev.asked(), "one CLI and one model left: only the effort stage asks")
 		assert.Equal(t, map[string]any{"cli": "beta", "model": "other-1", "effort": "high",
-			"confidence": map[string]any{"effort": 0.9}}, selectionLog(t, r.stderr))
+			"confidence": map[string]any{"effort": 0.9},
+			"effective":  bothFields(sourceRouter, "other-1", "high")}, selectionLog(t, r.stderr))
 		child, _, _ := e.child()
 		assert.Equal(t, []string{"-p", "--model", "other-1", "--effort", "high", "--", "fix it"}, child)
 	})

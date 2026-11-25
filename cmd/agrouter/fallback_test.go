@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +12,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/svtlv/agrouter/pkg/args"
 	"github.com/svtlv/agrouter/pkg/config"
 	"github.com/svtlv/agrouter/pkg/readiness"
+	"github.com/svtlv/agrouter/pkg/router"
 	"github.com/svtlv/agrouter/pkg/runner"
 )
 
@@ -36,6 +40,11 @@ func verified(value string) map[string]any {
 
 func unknownDefault(code string) map[string]any {
 	return map[string]any{"value": nil, "source": sourceUnknownDefault, "reason": map[string]any{"code": code}}
+}
+
+// bothFields is the effective object of a model and an effort fixed by the same source.
+func bothFields(source, model, effort string) map[string]any {
+	return map[string]any{"model": chosenBy(source, model), "effort": chosenBy(source, effort)}
 }
 
 func chosenBy(source, value string) map[string]any {
@@ -245,9 +254,10 @@ func TestApp_ExecNoFallback(t *testing.T) {
 
 		require.Equal(t, exitOK, r.code, r.stderr)
 		s := selectionLog(t, r.stderr)
-		for _, key := range []string{"fallback", "effective", "readiness", "reason"} {
+		for _, key := range []string{"fallback", "readiness", "reason"} {
 			assert.NotContains(t, s, key)
 		}
+		assert.Equal(t, bothFields(sourceRouter, "fast-1", "low"), s["effective"], "the classifier fixed both")
 	})
 
 	t.Run("a model without efforts", func(t *testing.T) {
@@ -259,7 +269,10 @@ func TestApp_ExecNoFallback(t *testing.T) {
 		require.Equal(t, exitOK, r.code, r.stderr)
 		s := selectionLog(t, r.stderr)
 		assert.NotContains(t, s, "fallback")
-		assert.NotContains(t, s, "effective", "no value is left to the child")
+		eff, ok := s["effective"].(map[string]any)
+		require.True(t, ok, "effective is always reported")
+		assert.Equal(t, chosenBy(sourceNative, "plain-1"), eff["model"])
+		assert.NotContains(t, eff, "effort", "a model without efforts has no effort source")
 	})
 
 	t.Run("an effort left to a passed-through model", func(t *testing.T) {
@@ -322,7 +335,7 @@ func TestApp_ExecNativeReporting(t *testing.T) {
 		assert.Equal(t, "alpha", s["cli"])
 		assert.Equal(t, "deep-1", s["model"], "the alias resolves to the catalog name")
 		assert.Equal(t, "high", s["effort"])
-		assert.NotContains(t, s, "effective", "no value is left to the child")
+		assert.Equal(t, bothFields(sourceNative, "deep-1", "high"), s["effective"])
 	})
 
 	t.Run("a routed effort beside a native model", func(t *testing.T) {
@@ -334,6 +347,8 @@ func TestApp_ExecNativeReporting(t *testing.T) {
 		s := selectionLog(t, r.stderr)
 		assert.Equal(t, "deep-1", s["model"])
 		assert.Equal(t, "low", s["effort"])
+		assert.Equal(t, map[string]any{"model": chosenBy(sourceNative, "deep-1"), "effort": chosenBy(sourceRouter, "low")},
+			s["effective"])
 	})
 
 	t.Run("a classifier failure keeps the native model with source native", func(t *testing.T) {
@@ -407,4 +422,58 @@ func TestApp_ExecNativeTokensNotLogged(t *testing.T) {
 			assert.Contains(t, r.stderr, `"model":"deep-1"`)
 		})
 	}
+}
+
+func TestApp_ExecSelectionWithoutPreflight(t *testing.T) {
+	cli := config.CLI{Name: "alpha"}
+	req := &args.Request{}
+	chosen := func(model, effort string) routed {
+		return routed{CLI: "alpha", Model: model, Effort: effort}
+	}
+
+	t.Run("routed values keep the router source", func(t *testing.T) {
+		var stderr bytes.Buffer
+		a := &app{stderr: &stderr}
+		s, blocked := a.execSelection(cli, req, chosen("fast-1", "low"))
+
+		require.Nil(t, blocked)
+		require.NotNil(t, s.Effective)
+		assert.Equal(t, sourceRouter, s.Effective.Model.Source)
+		assert.Equal(t, sourceRouter, s.Effective.Effort.Source)
+		assert.Nil(t, s.Readiness, "no preflight result, no readiness summary")
+		assert.Nil(t, s.Fallback)
+		assert.Empty(t, stderr.String())
+	})
+
+	t.Run("null values are unknown because no probe ran", func(t *testing.T) {
+		var stderr bytes.Buffer
+		a := &app{stderr: &stderr}
+		d := chosen("", "")
+		d.Undecided = errors.New("classifier failed")
+		s, blocked := a.execSelection(cli, req, d)
+
+		require.Nil(t, blocked)
+		require.NotNil(t, s.Effective)
+		for _, v := range []*effectiveValueJSON{s.Effective.Model, s.Effective.Effort} {
+			assert.Equal(t, sourceUnknownDefault, v.Source)
+			assert.Nil(t, v.Value)
+			assert.Equal(t, defaultNotProbed, v.Reason.Code)
+		}
+		assert.Nil(t, s.Readiness)
+		require.NotNil(t, s.Fallback)
+		assert.Equal(t, []string{router.LevelModel, router.LevelEffort}, s.Fallback.Fields)
+		assert.Contains(t, stderr.String(), "model unknown (no probe ran), effort unknown (no probe ran)")
+	})
+
+	t.Run("a model without effort levels has no effort source", func(t *testing.T) {
+		a := &app{stderr: &bytes.Buffer{}}
+		d := chosen("plain-1", "")
+		d.NoEffort = true
+		s, blocked := a.execSelection(cli, req, d)
+
+		require.Nil(t, blocked)
+		require.NotNil(t, s.Effective)
+		assert.Equal(t, sourceRouter, s.Effective.Model.Source)
+		assert.Nil(t, s.Effective.Effort)
+	})
 }

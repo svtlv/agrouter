@@ -33,7 +33,7 @@ claude_args = exec claude --doc=AGENTS.md --doc=README.md -- --dangerously-skip-
 # "opus:high" sets both. falls back to task_model when empty.
 # under the codex executor (executor = codex) this selects the codex plan-creation
 # model/effort, resolved against codex_model/codex_reasoning_effort.
-# plan_model =
+plan_model = :
 
 # task_model: model to use for task execution
 # same model[:effort] syntax as plan_model. leave empty to use Claude CLI's defaults.

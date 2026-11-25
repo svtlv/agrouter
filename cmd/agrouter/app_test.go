@@ -385,6 +385,11 @@ func (e *env) child() (argv []string, stdin []byte, environ []string) {
 	return argv, stdin, environ
 }
 
+// unknownNotProbed is the effective value of a field left to the child in decision mode.
+func unknownNotProbed() map[string]any {
+	return map[string]any{"value": nil, "source": sourceUnknownDefault, "reason": map[string]any{"code": defaultNotProbed}}
+}
+
 // decision decodes the one decision-mode JSON line.
 func decision(t *testing.T, stdout string) map[string]any {
 	t.Helper()
@@ -434,7 +439,8 @@ func TestApp_RalphexClaudeMode(t *testing.T) {
 		r := e.run(slices.Concat([]string{"exec", "claude", "--"}, fixed, native), strings.NewReader(task))
 
 		require.Equal(t, 0, r.code, r.stderr)
-		assert.Equal(t, map[string]any{"cli": "claude", "model": "claude-opus-5-5", "effort": "high"}, selectionLog(t, r.stderr))
+		assert.Equal(t, map[string]any{"cli": "claude", "model": "claude-opus-5-5", "effort": "high",
+			"effective": bothFields(sourceNative, "claude-opus-5-5", "high")}, selectionLog(t, r.stderr))
 		assert.Empty(t, r.stdout)
 		argv, stdin, _ := e.child()
 		assert.Equal(t, slices.Concat([]string{"-p"}, fixed, native), argv, "the native selection is not generated again")
@@ -449,7 +455,8 @@ func TestApp_RalphexClaudeMode(t *testing.T) {
 		r := e.run(slices.Concat([]string{"exec", "claude", "--"}, native), strings.NewReader(task))
 
 		require.Equal(t, 0, r.code, r.stderr)
-		assert.Equal(t, map[string]any{"cli": "claude", "model": "claude-sonnet-5-5", "effort": "medium", "confidence": map[string]any{"model": 0.9, "effort": 0.9}}, selectionLog(t, r.stderr))
+		assert.Equal(t, map[string]any{"cli": "claude", "model": "claude-sonnet-5-5", "effort": "medium", "confidence": map[string]any{"model": 0.9, "effort": 0.9},
+			"effective": bothFields(sourceRouter, "claude-sonnet-5-5", "medium")}, selectionLog(t, r.stderr))
 		argv, stdin, environ := e.child()
 		assert.Equal(t, slices.Concat([]string{"-p", "--model", "claude-sonnet-5-5", "--effort", "medium"}, native), argv)
 		assert.Equal(t, task, string(stdin), "stdin replayed byte for byte, the prompt never in argv")
@@ -489,7 +496,8 @@ func TestApp_RalphexCodexMode(t *testing.T) {
 		r := e.run(slices.Concat([]string{"exec", "codex", "--"}, native), strings.NewReader(task))
 
 		require.Equal(t, 0, r.code, r.stderr)
-		assert.Equal(t, map[string]any{"cli": "codex", "model": model, "effort": "medium", "confidence": map[string]any{"model": 0.9, "effort": 0.9}}, selectionLog(t, r.stderr))
+		assert.Equal(t, map[string]any{"cli": "codex", "model": model, "effort": "medium", "confidence": map[string]any{"model": 0.9, "effort": 0.9},
+			"effective": bothFields(sourceRouter, model, "medium")}, selectionLog(t, r.stderr))
 		argv, stdin, _ := e.child()
 		assert.Equal(t, slices.Concat([]string{"exec", "-c", modelArg, "-c", `model_reasoning_effort="medium"`}, native), argv)
 		assert.Equal(t, task, string(stdin))
@@ -501,7 +509,8 @@ func TestApp_RalphexCodexMode(t *testing.T) {
 			"-c", "stream_idle_timeout_ms=3600000", "--sandbox", "workspace-write"}, strings.NewReader(task))
 
 		require.Equal(t, 0, r.code, r.stderr)
-		assert.Equal(t, map[string]any{"cli": "codex", "model": model, "effort": "xhigh"}, selectionLog(t, r.stderr))
+		assert.Equal(t, map[string]any{"cli": "codex", "model": model, "effort": "xhigh",
+			"effective": bothFields(sourceNative, model, "xhigh")}, selectionLog(t, r.stderr))
 		argv, _, _ := e.child()
 		assert.Equal(t, []string{"exec", "-c", modelArg, "-c", `model_reasoning_effort="xhigh"`, "-c", "stream_idle_timeout_ms=3600000", "--sandbox", "workspace-write"}, argv, "unchanged, nothing generated")
 		assert.Empty(t, e.jev.requests())
@@ -519,6 +528,7 @@ func TestApp_Decision(t *testing.T) {
 		assert.Equal(t, map[string]any{
 			"cli": "claude", "model": "claude-sonnet-5-5", "effort": "low",
 			"confidence": map[string]any{"cli": 0.9, "model": 0.9, "effort": 0.9},
+			"effective":  bothFields(sourceRouter, "claude-sonnet-5-5", "low"),
 		}, decision(t, r.stdout))
 		assert.Equal(t, repeated(`{"prompt":"fix the typo in README"}`, 3), e.jev.requests())
 		assert.Equal(t, []string{"cli", "model", "effort"}, e.jev.asked())
@@ -545,6 +555,7 @@ func TestApp_Decision(t *testing.T) {
 		assert.Equal(t, "quick-1", d["model"])
 		assert.Nil(t, d["effort"])
 		assert.Contains(t, r.stdout, `"effort":null`)
+		assert.Equal(t, map[string]any{"model": chosenBy(sourceRouter, "quick-1")}, d["effective"], "no effort source without effort levels")
 	})
 
 	t.Run("cannot decide with the CLI known: null model and effort", func(t *testing.T) {
@@ -555,6 +566,7 @@ func TestApp_Decision(t *testing.T) {
 		assert.Empty(t, r.stderr)
 		assert.Subset(t, decision(t, r.stdout), map[string]any{"cli": "claude", "model": nil, "effort": nil,
 			"argv": strs("claude", "-p", "--", "fix it")})
+		assert.Equal(t, map[string]any{"model": unknownNotProbed(), "effort": unknownNotProbed()}, decision(t, r.stdout)["effective"])
 		assert.Empty(t, e.jev.requests())
 	})
 
@@ -779,6 +791,7 @@ func TestApp_VerboseOutput(t *testing.T) {
 				"project_complexity": "5.1/10", "evidence": 0.5, "confidence": 0.9})
 			assert.InDelta(t, 5.1, chunks[0].(map[string]any)["score"], 1e-9)
 			assert.Contains(t, d, "options")
+			assert.Equal(t, bothFields(sourceRouter, "fast-1", "low"), d["effective"])
 			assert.Contains(t, d, "argv")
 			assert.NotContains(t, d, "skipped")
 			assert.Equal(t, false, d["stdin_required"])
@@ -786,7 +799,8 @@ func TestApp_VerboseOutput(t *testing.T) {
 			assert.Contains(t, output, "\n  ")
 		} else {
 			assert.Len(t, confidence, 4)
-			assert.Len(t, d, 5)
+			assert.Len(t, d, 6)
+			assert.Equal(t, bothFields(sourceRouter, "fast-1", "low"), d["effective"])
 			assert.NotContains(t, d, "argv")
 			assert.NotContains(t, d, "skipped")
 			assert.NotContains(t, output, "private task")
@@ -830,7 +844,8 @@ func TestApp_ExecVerbosity(t *testing.T) {
 			require.Equal(t, 0, r.code, r.stderr)
 			assert.Empty(t, r.stdout)
 			assert.Equal(t, map[string]any{"cli": "alpha", "model": "fast-1", "effort": "low", "project_complexity": "5.1/10",
-				"confidence": map[string]any{"model": 0.9, "effort": 0.9, "project_complexity": 0.9}}, selectionLog(t, r.stderr))
+				"confidence": map[string]any{"model": 0.9, "effort": 0.9, "project_complexity": 0.9},
+				"effective":  bothFields(sourceRouter, "fast-1", "low")}, selectionLog(t, r.stderr))
 			assert.NotContains(t, r.stderr, "private task")
 			assert.NotContains(t, r.stderr, "project doc")
 			childArgv, _, _ := e.child()
@@ -867,6 +882,7 @@ func TestApp_Errors(t *testing.T) {
 		assert.True(t, strings.HasPrefix(r.stderr, "agrouter: classifier cannot decide between claude, codex"), r.stderr)
 		d := decision(t, r.stdout)
 		assert.Subset(t, d, map[string]any{"cli": nil, "model": nil, "effort": nil})
+		assert.NotContains(t, d, "effective", "no CLI is chosen")
 		assert.Equal(t, map[string]any{"code": "classifier_no_key", "stage": "cli",
 			"message": "Classifier CLI selection failed: no classifier API key is set"}, d["reason"])
 	})
@@ -1296,7 +1312,8 @@ func TestApp_PromptSourceErrors(t *testing.T) {
 func TestApp_ExecSelectionBeforeChild(t *testing.T) {
 	e := newEnv(t)
 	e.globalConfig(madeUpConfig(t, "acme", "test-child", "large", "future-model", "thorough"))
-	want := map[string]any{"cli": "acme", "model": "future-model", "effort": "thorough"}
+	want := map[string]any{"cli": "acme", "model": "future-model", "effort": "thorough",
+		"effective": bothFields(sourceNative, "future-model", "thorough")}
 	child := &mocks.CommandRunnerMock{RunFunc: func(_ context.Context, c runner.Command) (int, error) {
 		assert.Equal(t, want, selectionLog(t, c.Stderr.(*bytes.Buffer).String()), "selection must be logged before the child starts")
 		assert.Empty(t, c.Stdout.(*bytes.Buffer).String())
@@ -1329,7 +1346,8 @@ func TestApp_Exec(t *testing.T) {
 
 		assert.Equal(t, 7, r.code)
 		assert.Empty(t, r.stdout)
-		assert.Equal(t, map[string]any{"cli": "claude", "model": "claude-opus-5-5", "effort": "low"},
+		assert.Equal(t, map[string]any{"cli": "claude", "model": "claude-opus-5-5", "effort": "low",
+			"effective": bothFields(sourceNative, "claude-opus-5-5", "low")},
 			selectionLog(t, r.stderr))
 		argv, stdin, _ := e.child()
 		assert.Equal(t, []string{"-p", "--model", "opus", "--effort", "low", "--", "fix it"}, argv)
@@ -1506,7 +1524,8 @@ func TestApp_ConfigDrivenNames(t *testing.T) {
 			require.Equal(t, 0, r.code, r.stderr)
 			log := r.stderr
 			assert.Equal(t, map[string]any{"cli": tc.cli, "model": tc.model, "effort": tc.effort,
-				"confidence": map[string]any{"model": 0.9, "effort": 0.9}}, selectionLog(t, log))
+				"confidence": map[string]any{"model": 0.9, "effort": 0.9},
+				"effective":  bothFields(sourceRouter, tc.model, tc.effort)}, selectionLog(t, log))
 			got, gotStdin, _ := e.child()
 			assert.Equal(t, []string{"run", "--quiet", "--llm", tc.model, "--think=" + tc.effort, "--events", "ndjson", "--mode", "read", "--", "do it now"}, got)
 			assert.Equal(t, stdin, string(gotStdin))
@@ -1514,7 +1533,8 @@ func TestApp_ConfigDrivenNames(t *testing.T) {
 
 			r = e.run([]string{"exec", tc.cli, "do it", "--", "--llm", "preferred", "--think=" + tc.effort}, nil)
 			require.Equal(t, 0, r.code, r.stderr)
-			assert.Equal(t, map[string]any{"cli": tc.cli, "model": tc.model, "effort": tc.effort}, selectionLog(t, r.stderr))
+			assert.Equal(t, map[string]any{"cli": tc.cli, "model": tc.model, "effort": tc.effort,
+				"effective": map[string]any{"model": chosenBy(sourceNative, tc.model), "effort": chosenBy(sourceNative, tc.effort)}}, selectionLog(t, r.stderr))
 			got, _, _ = e.child()
 			assert.Equal(t, []string{"run", "--quiet", "--llm", "preferred", "--think=" + tc.effort, "--", "do it"}, got)
 			assert.Len(t, e.jev.requests(), 2, "a native model alias plus an effort selects one option without Jev")
