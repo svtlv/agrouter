@@ -48,16 +48,16 @@ Note: every chosen CLI gets one source per field. Only a model without effort le
 - Modify: `cmd/agrouter/readiness_test.go`
 - Modify: `cmd/agrouter/openai_test.go`
 
-- [ ] add `defaultNotProbed = "default_not_probed"` beside the other unknown-default codes, with warning text "no probe ran" in `defaultReasonTexts`
-- [ ] restructure `execSelection` so it computes `effective` also when `d.checked` is nil: no defaults, with reason `defaultNotProbed`; it skips only the quota and unknown checks that need `pre`, and guards `readinessSummary(pre.ev, unknown)` so it runs only when `pre` is not nil (no `readiness` when `d.checked` is nil)
-- [ ] remove the `s.Model == nil || (s.Effort == nil && !d.NoEffort)` condition, so `s.Effective` is always set; keep effort out when `d.NoEffort`; keep the after-routing block path returning before `effective` is set
-- [ ] update the godoc of `execSelection`, `effectiveJSON` and the source constants ("what the child runs with and who fixed each value")
-- [ ] update tests in `fallback_test.go` that assert `effective` is absent: "success" (both `router`), "a model without efforts" (model `native`, no effort key), and "native values with source native on success" near line 325 (both `native`)
-- [ ] keep "an effort left to a passed-through model" near line 273 unchanged: it already checks `effective` with model `native` and effort `verified_child_default`
-- [ ] update the full selection-line comparisons that now gain `effective`: `app_test.go` (lines about 437, 452, 492, 504, 833, 1301, 1317, 1333, 1509, 1517), `readiness_test.go` (lines about 208, 246, 277) and `openai_test.go` (line about 205); add the expected `effective` object to each, so `make test` passes before task 2
-- [ ] add a unit test for `execSelection` with `routed.checked == nil`: router values keep `router`, null values report `child_default_unknown` / `default_not_probed`, no `readiness` key, and no panic
-- [ ] keep the after-routing block test asserting no `effective`, `fallback` or `readiness`
-- [ ] run `make test` - must pass before task 2
+- [x] add `defaultNotProbed = "default_not_probed"` beside the other unknown-default codes, with warning text "no probe ran" in `defaultReasonTexts`
+- [x] restructure `execSelection` so it computes `effective` also when `d.checked` is nil: no defaults, with reason `defaultNotProbed`; it skips only the quota and unknown checks that need `pre`, and guards `readinessSummary(pre.ev, unknown)` so it runs only when `pre` is not nil (no `readiness` when `d.checked` is nil)
+- [x] remove the `s.Model == nil || (s.Effort == nil && !d.NoEffort)` condition, so `s.Effective` is always set; keep effort out when `d.NoEffort`; keep the after-routing block path returning before `effective` is set
+- [x] update the godoc of `execSelection`, `effectiveJSON` and the source constants ("what the child runs with and who fixed each value")
+- [x] update tests in `fallback_test.go` that assert `effective` is absent: "success" (both `router`), "a model without efforts" (model `native`, no effort key), and "native values with source native on success" near line 325 (both `native`)
+- [x] keep "an effort left to a passed-through model" near line 273 unchanged: it already checks `effective` with model `native` and effort `verified_child_default`
+- [x] update the full selection-line comparisons that now gain `effective`: `app_test.go` (lines about 437, 452, 492, 504, 833, 1301, 1317, 1333, 1509, 1517), `readiness_test.go` (lines about 208, 246, 277) and `openai_test.go` (line about 205); add the expected `effective` object to each, so `make test` passes before task 2
+- [x] add a unit test for `execSelection` with `routed.checked == nil`: router values keep `router`, null values report `child_default_unknown` / `default_not_probed`, no `readiness` key, and no panic
+- [x] keep the after-routing block test asserting no `effective`, `fallback` or `readiness`
+- [x] run `make test` - must pass before task 2
 
 ### Task 2: Attach effective in decision JSON
 
