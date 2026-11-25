@@ -386,6 +386,11 @@ func (e *env) child() (argv []string, stdin []byte, environ []string) {
 }
 
 // decision decodes the one decision-mode JSON line.
+// unknownNotProbed is the effective value of a field left to the child in decision mode.
+func unknownNotProbed() map[string]any {
+	return map[string]any{"value": nil, "source": sourceUnknownDefault, "reason": map[string]any{"code": defaultNotProbed}}
+}
+
 func decision(t *testing.T, stdout string) map[string]any {
 	t.Helper()
 	require.True(t, strings.HasSuffix(stdout, "\n"), stdout)
@@ -523,6 +528,7 @@ func TestApp_Decision(t *testing.T) {
 		assert.Equal(t, map[string]any{
 			"cli": "claude", "model": "claude-sonnet-5-5", "effort": "low",
 			"confidence": map[string]any{"cli": 0.9, "model": 0.9, "effort": 0.9},
+			"effective":  bothFields(sourceRouter, "claude-sonnet-5-5", "low"),
 		}, decision(t, r.stdout))
 		assert.Equal(t, repeated(`{"prompt":"fix the typo in README"}`, 3), e.jev.requests())
 		assert.Equal(t, []string{"cli", "model", "effort"}, e.jev.asked())
@@ -549,6 +555,7 @@ func TestApp_Decision(t *testing.T) {
 		assert.Equal(t, "quick-1", d["model"])
 		assert.Nil(t, d["effort"])
 		assert.Contains(t, r.stdout, `"effort":null`)
+		assert.Equal(t, map[string]any{"model": chosenBy(sourceRouter, "quick-1")}, d["effective"], "no effort source without effort levels")
 	})
 
 	t.Run("cannot decide with the CLI known: null model and effort", func(t *testing.T) {
@@ -559,6 +566,7 @@ func TestApp_Decision(t *testing.T) {
 		assert.Empty(t, r.stderr)
 		assert.Subset(t, decision(t, r.stdout), map[string]any{"cli": "claude", "model": nil, "effort": nil,
 			"argv": strs("claude", "-p", "--", "fix it")})
+		assert.Equal(t, map[string]any{"model": unknownNotProbed(), "effort": unknownNotProbed()}, decision(t, r.stdout)["effective"])
 		assert.Empty(t, e.jev.requests())
 	})
 
@@ -783,6 +791,7 @@ func TestApp_VerboseOutput(t *testing.T) {
 				"project_complexity": "5.1/10", "evidence": 0.5, "confidence": 0.9})
 			assert.InDelta(t, 5.1, chunks[0].(map[string]any)["score"], 1e-9)
 			assert.Contains(t, d, "options")
+			assert.Equal(t, bothFields(sourceRouter, "fast-1", "low"), d["effective"])
 			assert.Contains(t, d, "argv")
 			assert.NotContains(t, d, "skipped")
 			assert.Equal(t, false, d["stdin_required"])
@@ -790,7 +799,8 @@ func TestApp_VerboseOutput(t *testing.T) {
 			assert.Contains(t, output, "\n  ")
 		} else {
 			assert.Len(t, confidence, 4)
-			assert.Len(t, d, 5)
+			assert.Len(t, d, 6)
+			assert.Equal(t, bothFields(sourceRouter, "fast-1", "low"), d["effective"])
 			assert.NotContains(t, d, "argv")
 			assert.NotContains(t, d, "skipped")
 			assert.NotContains(t, output, "private task")
@@ -872,6 +882,7 @@ func TestApp_Errors(t *testing.T) {
 		assert.True(t, strings.HasPrefix(r.stderr, "agrouter: classifier cannot decide between claude, codex"), r.stderr)
 		d := decision(t, r.stdout)
 		assert.Subset(t, d, map[string]any{"cli": nil, "model": nil, "effort": nil})
+		assert.NotContains(t, d, "effective", "no CLI is chosen")
 		assert.Equal(t, map[string]any{"code": "classifier_no_key", "stage": "cli",
 			"message": "Classifier CLI selection failed: no classifier API key is set"}, d["reason"])
 	})

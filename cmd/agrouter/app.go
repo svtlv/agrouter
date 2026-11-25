@@ -91,8 +91,8 @@ func stdinReader(r io.Reader) io.Reader {
 	return r
 }
 
-// selectionJSON records the selection, why routing failed or a value is null, project complexity
-// and available classifier confidence.
+// selectionJSON records the selection, why routing failed or a value is null, project complexity,
+// available classifier confidence and, for a chosen CLI, who fixed each value (effective).
 type selectionJSON struct {
 	CLI               *string          `json:"cli"`
 	Model             *string          `json:"model"`
@@ -102,9 +102,9 @@ type selectionJSON struct {
 	ProjectComplexity string           `json:"project_complexity,omitempty"`
 	Confidence        *confidenceJSON  `json:"confidence,omitempty"`
 	Options           []optionJSON     `json:"options,omitempty"`
+	Effective         *effectiveJSON   `json:"effective,omitempty"`
 	// exec only
 	Fallback  *fallbackJSON  `json:"fallback,omitempty"`
-	Effective *effectiveJSON `json:"effective,omitempty"`
 	Readiness *readinessJSON `json:"readiness,omitempty"`
 }
 
@@ -187,7 +187,9 @@ func (a *app) run(argv []string) int {
 		}
 		if req.Mode == args.ModeDecision && errors.Is(err, router.ErrCannotDecide) {
 			// stdout still gets the decision, all null with the reasons, beside the error line
-			if code := a.writeDecision(selectionOutput(d, cmd.verbose, err), cmd.verbose); code != exitOK {
+			out := selectionOutput(d, cmd.verbose, err)
+			out.Effective = decisionEffective(out, d.NoEffort)
+			if code := a.writeDecision(out, cmd.verbose); code != exitOK {
 				return code
 			}
 		}
@@ -440,6 +442,7 @@ func (a *app) startExecChecks(ctx context.Context, cfg *config.Config, req *args
 // printDecision writes concise or indented verbose JSON to stdout.
 func (a *app) printDecision(d routed, res args.Result, verbose bool) int {
 	summary := selectionOutput(d, verbose, nil)
+	summary.Effective = decisionEffective(summary, d.NoEffort)
 	var out any = summary
 	if verbose {
 		details := decisionJSON{selectionJSON: summary, Argv: res.Argv}

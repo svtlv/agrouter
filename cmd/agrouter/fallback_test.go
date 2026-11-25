@@ -426,7 +426,7 @@ func TestApp_ExecSelectionWithoutPreflight(t *testing.T) {
 	cli := config.CLI{Name: "alpha"}
 	req := &args.Request{}
 	chosen := func(model, effort string) routed {
-		return routed{Decision: router.Decision{CLI: "alpha", Model: model, Effort: effort}}
+		return routed{CLI: "alpha", Model: model, Effort: effort}
 	}
 
 	t.Run("routed values keep the router source", func(t *testing.T) {

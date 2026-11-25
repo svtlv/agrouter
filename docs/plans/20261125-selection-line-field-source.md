@@ -67,13 +67,13 @@ Note: every chosen CLI gets one source per field. Only a model without effort le
 - Modify: `cmd/agrouter/app_test.go` (or `fallback_test.go`, next to the selection-line tests)
 - Modify: `cmd/agrouter/openai_test.go`
 
-- [ ] add `decisionEffective(s selectionJSON, noEffort bool) *effectiveJSON`: nil when `s.CLI` is nil; else `effective(s.Model, "", nil, defaultNotProbed)`, and the same for effort unless `noEffort`
-- [ ] set `Effective` in `printDecision` (concise and verbose) and in the cannot-decide `writeDecision` path in `app.go`: `router.cannotDecide` returns an empty decision when several CLIs remain, so `cli` is null and `effective` stays absent; keep the existing error response and exit code 2 unchanged
-- [ ] move the `Effective` field out of the "exec only" group in `selectionJSON` and update its comment
-- [ ] update the exact decision comparisons that now gain `effective`: `app_test.go:519` ("prompt only") and `openai_test.go:167`; add the expected `effective` object (both fields `router`)
-- [ ] update the concise-output field count in `app_test.go:789` (`assert.Len(t, d, 5)`) to include `effective`
-- [ ] add decision-mode tests with synthetic fixtures: routed model and effort are both `router`; a CLI known but routing failed gives `child_default_unknown` / `default_not_probed` for the null fields; a model without efforts has no effort key; cannot decide with more than one CLI keeps exit code 2 and the stderr error line, and its JSON has no `effective`; `--verbose` output carries the same `effective`
-- [ ] run `make test` - must pass before task 3
+- [x] add `decisionEffective(s selectionJSON, noEffort bool) *effectiveJSON`: nil when `s.CLI` is nil; else `effective(s.Model, "", nil, defaultNotProbed)`, and the same for effort unless `noEffort`
+- [x] set `Effective` in `printDecision` (concise and verbose) and in the cannot-decide `writeDecision` path in `app.go`: `router.cannotDecide` returns an empty decision when several CLIs remain, so `cli` is null and `effective` stays absent; keep the existing error response and exit code 2 unchanged
+- [x] move the `Effective` field out of the "exec only" group in `selectionJSON` and update its comment
+- [x] update the exact decision comparisons that now gain `effective`: `app_test.go:519` ("prompt only") and `openai_test.go:167`; add the expected `effective` object (both fields `router`)
+- [x] update the concise-output field count in `app_test.go:789` (`assert.Len(t, d, 5)`) to include `effective`
+- [x] add decision-mode tests with synthetic fixtures: routed model and effort are both `router`; a CLI known but routing failed gives `child_default_unknown` / `default_not_probed` for the null fields; a model without efforts has no effort key; cannot decide with more than one CLI keeps exit code 2 and the stderr error line, and its JSON has no `effective`; `--verbose` output carries the same `effective`
+- [x] run `make test` - must pass before task 3
 
 ### Task 3: Verify acceptance criteria
 

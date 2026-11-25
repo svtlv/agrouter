@@ -149,6 +149,20 @@ func effective(chosen *string, fixed string, def *string, why string) *effective
 	return &effectiveValueJSON{Source: sourceUnknownDefault, Reason: &codeJSON{why}}
 }
 
+// decisionEffective is decision mode's effective for s: nil when no CLI is chosen. Decision mode
+// rejects native arguments and never probes, so a value is router's or an unknown child default
+// with the reason defaultNotProbed. The effort stays out for a model without effort levels.
+func decisionEffective(s selectionJSON, noEffort bool) *effectiveJSON {
+	if s.CLI == nil {
+		return nil
+	}
+	e := &effectiveJSON{Model: effective(s.Model, "", nil, defaultNotProbed)}
+	if !noEffort {
+		e.Effort = effective(s.Effort, "", nil, defaultNotProbed)
+	}
+	return e
+}
+
 // fallbackMessage is the fallback's fixed message for fields.
 func fallbackMessage(fields []string) string {
 	if len(fields) == 1 {

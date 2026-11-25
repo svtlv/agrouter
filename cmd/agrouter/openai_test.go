@@ -167,6 +167,7 @@ func TestApp_OpenAIProvider(t *testing.T) {
 		assert.Equal(t, map[string]any{
 			"cli": "claude", "model": "claude-sonnet-5-5", "effort": "low",
 			"confidence": map[string]any{"cli": 0.9, "model": 0.9, "effort": 0.9},
+			"effective":  bothFields(sourceRouter, "claude-sonnet-5-5", "low"),
 		}, decision(t, stdout.String()))
 		assert.Equal(t, []string{classifier.ProviderOpenAI}, providers)
 		inputs, keys, stages := f.seen()
